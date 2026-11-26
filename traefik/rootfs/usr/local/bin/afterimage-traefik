@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Reads the Home Assistant app options, writes Traefik's configuration and
+# starts Traefik. Secrets go into files readable only by this container's
+# root and are never printed.
+
+set -Eeuo pipefail
+
+OPTIONS="${AFTERIMAGE_OPTIONS:-/data/options.json}"
+DATA_DIR="${AFTERIMAGE_DATA_DIR:-/data}"
+RUN_DIR=/run/traefik
+# Immich's port inside its own app container, on Home Assistant's internal
+# network. Its port on the host does not matter.
+IMMICH_PORT=2283
+
+log() { printf '%s afterimage-traefik: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+fail() { log "configuration error: $*"; exit 64; }
+
+[ -f "$OPTIONS" ] || fail "${OPTIONS} not found. Home Assistant writes it when the app starts."
+opt() { jq -r --arg k "$1" '.[$k] // empty' "$OPTIONS"; }
+
+domain="$(opt domain | tr 'A-Z' 'a-z')"
+email="$(opt acme_email)"
+dns_token="$(opt cloudflare_dns_api_token)"
+zone_token="$(opt cloudflare_zone_api_token)"
+backend="$(opt immich_backend)"
+staging="$(opt staging)"
+log_level="$(opt log_level)"
+
+[[ "$domain" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || fail '"domain" must be a host name such as photos.example.com.'
+[[ "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || fail '"acme_email" must be an email address. Let'\''s Encrypt uses it for expiry notices.'
+[ -n "$dns_token" ] || fail '"cloudflare_dns_api_token" is empty. Create a Cloudflare API token with Zone:Zone:Read and Zone:DNS:Edit for your domain.'
+case "$log_level" in debug) level=DEBUG ;; warn) level=WARN ;; error) level=ERROR ;; *) level=INFO ;; esac
+
+# Where Immich is. Home Assistant names each app on its internal network
+# "<repository id>-<slug>", and this app comes from the same repository as
+# the Immich app, so swap this app's slug for Immich's.
+if [ -z "$backend" ]; then
+  own="$(hostname)"
+  if [[ "$own" == *-traefik ]]; then
+    backend="http://${own%-traefik}-afterimage:${IMMICH_PORT}"
+  else
+    fail "cannot work out the Immich app's address from this app's host name (${own}). Set \"immich_backend\", for example http://923cdf4f-afterimage:2283."
+  fi
+fi
+[[ "$backend" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] || fail '"immich_backend" must look like http://name:2283.'
+backend_host="${backend#*://}"; backend_host="${backend_host%%[:/]*}"
+if getent hosts "$backend_host" >/dev/null 2>&1; then
+  log "Immich is at ${backend}"
+else
+  log "WARNING: ${backend_host} does not resolve yet. Is the Afterimage (Immich) app installed and started? Requests will fail until it does."
+fi
+
+if [ "$staging" = "true" ]; then
+  ca_server="https://acme-staging-v02.api.letsencrypt.org/directory"
+  storage="${DATA_DIR}/acme-staging.json"
+  log "using Let's Encrypt STAGING: the certificate will not be trusted by browsers or phones"
+else
+  ca_server="https://acme-v02.api.letsencrypt.org/directory"
+  storage="${DATA_DIR}/acme.json"
+fi
+
+mkdir -p "$RUN_DIR" "$DATA_DIR"
+umask 077
+[ -f "$storage" ] || : > "$storage"
+chmod 0600 "$storage"
+
+# The Cloudflare tokens reach Traefik's DNS provider as files (*_FILE), so
+# they never appear in the environment or the process list.
+printf '%s' "$dns_token" > "${RUN_DIR}/cf_dns_api_token"
+export CF_DNS_API_TOKEN_FILE="${RUN_DIR}/cf_dns_api_token"
+if [ -n "$zone_token" ]; then
+  printf '%s' "$zone_token" > "${RUN_DIR}/cf_zone_api_token"
+  export CF_ZONE_API_TOKEN_FILE="${RUN_DIR}/cf_zone_api_token"
+fi
+unset dns_token zone_token
+
+cat > "${RUN_DIR}/traefik.yml" <<YAML
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: ${level}
+entryPoints:
+  websecure:
+    address: ":443"
+    asDefault: true
+    transport:
+      # Immich uploads can be many gigabytes on a slow connection. Traefik's
+      # default 60 s read timeout would cut them off; 0 means no limit.
+      respondingTimeouts:
+        readTimeout: 0s
+        writeTimeout: 0s
+        idleTimeout: 180s
+    http:
+      tls:
+        certResolver: letsencrypt
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${email}"
+      storage: "${storage}"
+      caServer: "${ca_server}"
+      keyType: EC256
+      dnsChallenge:
+        provider: cloudflare
+        # Ask public resolvers, so a local DNS override for the domain does
+        # not get in the way of the challenge.
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+providers:
+  file:
+    filename: "${RUN_DIR}/dynamic.yml"
+YAML
+
+cat > "${RUN_DIR}/dynamic.yml" <<YAML
+http:
+  routers:
+    immich:
+      rule: "Host(\`${domain}\`)"
+      entryPoints:
+        - websecure
+      service: immich
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "${domain}"
+  services:
+    immich:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "${backend}"
+YAML
+
+log "serving https://${domain} -> ${backend}"
+exec traefik --configFile="${RUN_DIR}/traefik.yml"

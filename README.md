@@ -4,17 +4,18 @@ Private photo and video backup for one household, built on
 [Immich](https://immich.app) and packaged as Home Assistant apps for a
 Raspberry Pi 5.
 
-> **Status:** Phase 1 of [docs/plan.md](docs/plan.md) is done: the Immich
-> app builds and passes its smoke test in an arm64 container. It has not run
-> on the Pi yet (Phase 2), and the Traefik app is not written (Phase 3).
+> **Status:** Immich runs on the Pi as the Afterimage app, with the
+> household's previous library restored (Phase 2). The Traefik app for
+> `https://photos.dpool.dev` is written and tested in a container; it has not
+> run on the Pi yet (Phase 3).
 
 ## What is here
 
 ```
 repository.yaml   Makes this a Home Assistant app repository
 immich/           The Afterimage app: Immich server, PostgreSQL and Valkey in one container
-traefik/          (planned) Traefik with a DNS-01 certificate in front of Immich
-scripts/          Smoke test that builds and exercises the image on a Mac or Linux box
+traefik/          Traefik: HTTPS for Immich with a Let's Encrypt certificate by Cloudflare DNS-01
+scripts/          Smoke tests that build and exercise each app on a Mac or Linux box
 docs/plan.md      The plan: decisions, phases, risks, confirmed facts
 ```
 

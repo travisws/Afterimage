@@ -1,0 +1,31 @@
+name: Afterimage Traefik
+version: "3.8.0-1"
+slug: traefik
+description: >-
+  HTTPS for Immich at your own domain. Traefik with a Let's Encrypt
+  certificate obtained through Cloudflare DNS-01.
+url: https://github.com/travisws/Afterimage
+arch:
+  - aarch64
+startup: services
+boot: auto
+timeout: 30
+ports:
+  443/tcp: 443
+ports_description:
+  443/tcp: HTTPS for Immich
+watchdog: "tcp://[HOST]:[PORT:443]"
+options:
+  domain: photos.dpool.dev
+  acme_email: null
+  cloudflare_dns_api_token: null
+  staging: false
+  log_level: info
+schema:
+  domain: str
+  acme_email: email
+  cloudflare_dns_api_token: password
+  cloudflare_zone_api_token: "password?"
+  immich_backend: "str?"
+  staging: bool
+  log_level: "list(debug|info|warn|error)"

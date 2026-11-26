@@ -14,3 +14,4 @@ secrets/
 
 # Claude Code worktrees
 .claude/worktrees/
+/.smoke-traefik/

@@ -18,15 +18,17 @@ branch, `main`.
 
 Update this at the end of every phase.
 
-- **Phase:** 2 (on the Pi). The app installs and starts on the Pi. Next:
-  restore the household's previous Immich (v3.4.1, Docker on the NAS server
-  `s` = 10.0.0.2) from a dump, using its folders in place
+- **Phase:** 3 (Traefik and the domain). Phase 2 is done: the Immich app
+  runs on the Pi with the previous library restored (4 users, about 44,700
+  assets). The Traefik app for `photos.dpool.dev` (Cloudflare DNS-01) is
+  written and passes its container test; next is installing it on the Pi
 - **NAS layout:** `/data/immich` on the NAS, exported over NFS and mounted in
   Home Assistant as `Immich`. `library`, `thumbs`, `encoded-video`, `profile`
   and `backups` are separate ZFS datasets; originals are in
   `library/library` and `library/upload`. Do not move datasets: the app's
   folder options map this layout as it is
-- **Last result from the Pi:** first start of the app worked (26 Nov 2026)
+- **Last result from the Pi:** restore of the previous Immich worked; photos
+  and videos visible (26 Nov 2026)
 
 ## Hard rules
 
@@ -53,10 +55,12 @@ From the repository root, on an Apple silicon Mac with Apple's `container`
 tool (or set `CONTAINER_CLI=docker` on an arm64 Linux machine):
 
 ```
-scripts/smoke-test.sh          build the image and run the full smoke test
+scripts/smoke-test.sh          build the Immich app and run its smoke test
+scripts/traefik-smoke-test.sh  build the Traefik app and run its smoke test
 ```
 
-The smoke test must pass before any change to `immich/` is committed.
+The matching smoke test must pass before any change to `immich/` or
+`traefik/` is committed.
 
 ## Conventions
 

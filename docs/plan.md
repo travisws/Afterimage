@@ -126,14 +126,24 @@ folder, and the Pi stays out of swap trouble.
 
 ### Phase 3: Traefik, hostname and certificate
 
-- [ ] `traefik/` app: static config from options (hostname, DNS provider,
-      API token as a password option, ACME email), DNS-01 certificate stored
-      in its `/data`, port 443
-- [ ] One router for the Immich hostname to the Immich app on the internal
-      network, with `readTimeout` raised for long uploads and no buffering
-- [ ] Split DNS: the hostname points at the Pi at home; public record only if
-      backups should also run away from home
-- [ ] If the DNS provider is Cloudflare, keep the record DNS-only
+- [x] Checked existing apps first (26 Nov 2026): Nginx Proxy Manager is
+      maintained but heavier and needs set-up in its own web page; no
+      maintained Traefik app exists; Home Assistant Cloud only reaches Home
+      Assistant itself. Chose a small Traefik app of our own
+- [x] `traefik/` app: Traefik v3.8.0, options for domain, email and the
+      Cloudflare token (password option, passed to Traefik as a file),
+      certificate in its `/data`, port 443
+- [x] One router for the domain to the Immich app on the internal network
+      (`<repository id>-afterimage:2283`, worked out from the app's own host
+      name), `readTimeout` 0 so long uploads are not cut, no buffering
+- [x] `scripts/traefik-smoke-test.sh`: routing, 256 MiB and over-60-second
+      uploads byte for byte, token kept out of logs and environment
+- [ ] On the Pi: Cloudflare token, install, real certificate issued
+- [ ] Split DNS: router's local record for `photos.dpool.dev` moves from
+      the old server (`10.0.0.2`) to the Pi (`10.0.0.100`); port 443
+      forward moves to the Pi
+- [x] Cloudflare record is DNS-only (resolves to the home address, not a
+      Cloudflare address)
 
 **Done when:** a video over 1 GB uploads through the real hostname from
 home Wi-Fi and, if public, from mobile data.
