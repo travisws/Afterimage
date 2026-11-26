@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Secrets: never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Smoke-test working files
+/.smoke/
+
+# Claude Code worktrees
+.claude/worktrees/
