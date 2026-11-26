@@ -18,12 +18,15 @@ branch, `main`.
 
 Update this at the end of every phase.
 
-- **Phase:** 1 (the Immich app image) done in a container on 26 Nov 2026.
-  Next is Phase 2, on the Pi
-- **Blocked on:** the first install on the Pi (the NAS is mounted over NFS
-  as network storage `Immich`). Traefik (Phase 3) needs the hostname and DNS
-  provider listed at the end of `docs/plan.md`
-- **Last result from the Pi:** none yet
+- **Phase:** 2 (on the Pi). The app installs and starts on the Pi. Next:
+  restore the household's previous Immich (v3.4.1, Docker on the NAS server
+  `s` = 10.0.0.2) from a dump, using its folders in place
+- **NAS layout:** `/data/immich` on the NAS, exported over NFS and mounted in
+  Home Assistant as `Immich`. `library`, `thumbs`, `encoded-video`, `profile`
+  and `backups` are separate ZFS datasets; originals are in
+  `library/library` and `library/upload`. Do not move datasets: the app's
+  folder options map this layout as it is
+- **Last result from the Pi:** first start of the app worked (26 Nov 2026)
 
 ## Hard rules
 

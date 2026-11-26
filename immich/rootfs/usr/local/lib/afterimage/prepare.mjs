@@ -13,6 +13,21 @@ const dataDir = process.env.AFTERIMAGE_DATA_DIR || '/data';
 const envOut = process.argv[2] || '/run/afterimage/env';
 const configOut = join(dataDir, 'immich-config.json');
 
+// Immich's media location. It holds only links to the folders on the share,
+// is rebuilt at every start, and must never change once a database uses it.
+const mediaRoot = '/afterimage/media';
+
+// Immich's six media folders, the option that says where each one lives on
+// the share, and the default (the layout of the owner's NAS).
+const folders = [
+  { name: 'library', option: 'folder_library', fallback: 'library/library' },
+  { name: 'upload', option: 'folder_upload', fallback: 'library/upload' },
+  { name: 'thumbs', option: 'folder_thumbs', fallback: 'thumbs' },
+  { name: 'encoded-video', option: 'folder_encoded_video', fallback: 'encoded-video' },
+  { name: 'profile', option: 'folder_profile', fallback: 'profile' },
+  { name: 'backups', option: 'folder_backups', fallback: 'backups' },
+];
+
 function fail(message) {
   console.error(`afterimage: configuration error: ${message}`);
   process.exit(64);
@@ -30,7 +45,7 @@ try {
 }
 
 // A folder name, never a path: nothing typed into an option may point the
-// media location somewhere else on the device.
+// storage somewhere else on the device.
 function folderName(key, value) {
   if (typeof value !== 'string' || value.trim() === '') {
     fail(`"${key}" is empty. Set it on the app's Configuration tab.`);
@@ -42,13 +57,38 @@ function folderName(key, value) {
   return name;
 }
 
+// A path inside the share, such as "library/upload". No "..", no absolute
+// paths, no hidden folders, so it cannot leave the share.
+function relativeFolder(key, value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    fail(`"${key}" is empty. Set it on the app's Configuration tab.`);
+  }
+  const parts = value.trim().replace(/\/+$/, '').split('/');
+  for (const part of parts) {
+    if (part === '' || part === '.' || part === '..' || part.startsWith('.') || /[\\\0]/.test(part)) {
+      fail(`"${key}" must be a folder path inside the share, like "library/upload".`);
+    }
+  }
+  return parts.join('/');
+}
+
 const storageName = folderName('storage_name', options.storage_name);
-const subfolder = folderName('storage_subfolder', options.storage_subfolder ?? 'immich');
 const storageMount = join(shareRoot, storageName);
-const mediaRoot = join(storageMount, subfolder);
+
+const targets = folders.map(({ name, option, fallback }) => ({
+  name,
+  target: join(storageMount, relativeFolder(option, options[option] ?? fallback)),
+}));
+const seen = new Set();
+for (const { target } of targets) {
+  if (seen.has(target)) {
+    fail(`two Immich folders point at the same place: ${target}`);
+  }
+  seen.add(target);
+}
 
 const requireMount = options.require_mount !== false;
-const manageSettings = options.manage_settings !== false;
+const manageSettings = options.manage_settings === true;
 const logLevel = ['verbose', 'debug', 'log', 'warn', 'error'].includes(options.log_level)
   ? options.log_level
   : 'log';
@@ -99,6 +139,8 @@ const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
 const lines = [
   `STORAGE_MOUNT=${quote(storageMount)}`,
   `MEDIA_ROOT=${quote(mediaRoot)}`,
+  `FOLDER_NAMES=(${targets.map(({ name }) => quote(name)).join(' ')})`,
+  `FOLDER_TARGETS=(${targets.map(({ target }) => quote(target)).join(' ')})`,
   `REQUIRE_MOUNT=${requireMount ? 'true' : 'false'}`,
   `MANAGE_SETTINGS=${manageSettings ? 'true' : 'false'}`,
   `IMMICH_CONFIG_PATH=${quote(manageSettings ? configOut : '')}`,

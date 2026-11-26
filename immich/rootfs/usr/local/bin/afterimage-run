@@ -21,6 +21,8 @@ valkey_pid=""
 immich_pid=""
 sleep_pid=""
 last_notice=0
+immich_next_start=0
+immich_crashes=()
 
 log() { printf '%s afterimage: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
@@ -168,13 +170,32 @@ share_ready() {
   return 0
 }
 
-start_immich() {
+# Immich's media location is a folder of links, one per Immich folder, each
+# pointing at where that folder lives on the share. Rebuilt at every start.
+link_media_folders() {
+  local i name target
   mkdir -p "$MEDIA_ROOT" || { log "cannot create ${MEDIA_ROOT}"; return 1; }
-  if ! (: > "${MEDIA_ROOT}/.afterimage-write-test" && rm -f "${MEDIA_ROOT}/.afterimage-write-test"); then
-    log "${MEDIA_ROOT} is not writable"
-    return 1
-  fi
-  log "starting Immich with media in ${MEDIA_ROOT}"
+  for i in "${!FOLDER_NAMES[@]}"; do
+    name="${FOLDER_NAMES[$i]}"
+    target="${FOLDER_TARGETS[$i]}"
+    if [ ! -d "$target" ]; then
+      mkdir -p "$target" || { log "cannot create ${target}"; return 1; }
+      log "created ${target}"
+    fi
+    if ! (: > "${target}/.afterimage-write-test" && rm -f "${target}/.afterimage-write-test"); then
+      log "${target} is not writable"
+      return 1
+    fi
+    ln -sfn "$target" "${MEDIA_ROOT}/${name}"
+  done
+}
+
+start_immich() {
+  link_media_folders || return 1
+  log "starting Immich"
+  for i in "${!FOLDER_NAMES[@]}"; do
+    log "  ${FOLDER_NAMES[$i]} -> ${FOLDER_TARGETS[$i]}"
+  done
   (
     export IMMICH_MEDIA_LOCATION="$MEDIA_ROOT"
     export DB_HOSTNAME=127.0.0.1 DB_PORT=5432 DB_USERNAME=postgres
@@ -188,6 +209,23 @@ start_immich() {
     exec setsid start.sh
   ) &
   immich_pid=$!
+}
+
+# Immich died on its own. Restart it after a pause, but give up (and stop the
+# app, so Home Assistant shows it as stopped) if it keeps dying.
+immich_crashed() {
+  local code="$1" now kept=() t
+  now="$(date +%s)"
+  for t in "${immich_crashes[@]}"; do
+    [ $((now - t)) -lt 600 ] && kept+=("$t")
+  done
+  kept+=("$now")
+  immich_crashes=("${kept[@]}")
+  if [ "${#immich_crashes[@]}" -gt 5 ]; then
+    fatal "Immich stopped unexpectedly ${#immich_crashes[@]} times in 10 minutes. See its messages above."
+  fi
+  log "Immich stopped unexpectedly (exit ${code}); restarting it in 10s"
+  immich_next_start=$((now + 10))
 }
 
 notice_waiting() {
@@ -211,14 +249,14 @@ node /usr/local/lib/afterimage/prepare.mjs "${RUN_DIR}/env"
 . "${RUN_DIR}/env"
 
 log "Afterimage starting (Immich ${IMMICH_SOURCE_REF:-unknown}, PostgreSQL ${PG_MAJOR})"
-[ "$REQUIRE_MOUNT" = "true" ] || log "WARNING: require_mount is off. Files will be written to ${MEDIA_ROOT} whether or not it is a network share."
+[ "$REQUIRE_MOUNT" = "true" ] || log "WARNING: require_mount is off. Files will be written under ${STORAGE_MOUNT} whether or not it is a network share."
 
 start_postgres
 start_valkey
 
 while true; do
   if share_ready; then
-    if [ -z "$immich_pid" ]; then
+    if [ -z "$immich_pid" ] && [ "$(date +%s)" -ge "$immich_next_start" ]; then
       start_immich || notice_waiting
     fi
   else
@@ -234,7 +272,8 @@ while true; do
   sleep "$CHECK_SECONDS" &
   sleep_pid=$!
   finished=""
-  wait -n -p finished "$sleep_pid" "$pg_pid" "$valkey_pid" ${immich_pid:+"$immich_pid"} || true
+  status=0
+  wait -n -p finished "$sleep_pid" "$pg_pid" "$valkey_pid" ${immich_pid:+"$immich_pid"} || status=$?
   if [ "$finished" != "$sleep_pid" ]; then
     kill "$sleep_pid" 2>/dev/null || true
     wait "$sleep_pid" 2>/dev/null || true
@@ -247,10 +286,13 @@ while true; do
   esac
   if [ -n "$immich_pid" ] && [ "$finished" = "$immich_pid" ]; then
     immich_pid=""
+    # Its forked workers may still be running; stop the whole group.
+    kill -s TERM -- "-${finished}" 2>/dev/null || true
     if share_ready; then
-      fatal "Immich stopped unexpectedly. See its messages above."
+      immich_crashed "$status"
+    else
+      log "Immich stopped after the network share went away"
+      last_notice=0
     fi
-    log "Immich stopped after the network share went away"
-    last_notice=0
   fi
 done

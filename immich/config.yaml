@@ -1,5 +1,5 @@
 name: Afterimage (Immich)
-version: "3.4.2-1"
+version: "3.4.2-2"
 slug: afterimage
 description: >-
   Immich photo and video backup, trimmed for a Raspberry Pi. Database on the
@@ -28,16 +28,28 @@ backup_exclude:
   - "postgres/*"
 options:
   storage_name: Immich
-  storage_subfolder: immich
+  folder_library: library/library
+  folder_upload: library/upload
+  folder_thumbs: thumbs
+  folder_encoded_video: encoded-video
+  folder_profile: profile
+  folder_backups: backups
   require_mount: true
-  manage_settings: true
+  manage_settings: false
   video_transcoding: disabled
   storage_template: "{{y}}/{{MM}}/{{filename}}"
   database_dumps_kept: 14
   log_level: log
 schema:
   storage_name: str
-  storage_subfolder: str
+  folder_library: str
+  folder_upload: str
+  folder_thumbs: str
+  folder_encoded_video: str
+  folder_profile: str
+  folder_backups: str
+  # No longer used; kept so configurations saved by older versions still load.
+  storage_subfolder: "str?"
   require_mount: bool
   manage_settings: bool
   video_transcoding: "list(disabled|required)"

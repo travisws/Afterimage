@@ -2,7 +2,10 @@
 # Builds the Afterimage image and exercises it in a local arm64 Linux
 # container. This is not a substitute for testing on the Pi: it proves the
 # image starts, stores an upload on the "share" byte for byte, dumps the
-# database, survives a restart, and refuses to run Immich without a mount.
+# database, survives a restart, restarts Immich if it dies, and refuses to
+# run Immich without a mount. The "share" uses the same split layout as the
+# owner's NAS: library/library, library/upload, thumbs, encoded-video,
+# profile and backups.
 #
 # Usage: scripts/smoke-test.sh            (Apple's `container` tool)
 #        CONTAINER_CLI=docker scripts/smoke-test.sh
@@ -36,7 +39,12 @@ write_options() {
   cat > "${WORK}/options/options.json" <<EOF
 {
   "storage_name": "$1",
-  "storage_subfolder": "immich",
+  "folder_library": "library/library",
+  "folder_upload": "library/upload",
+  "folder_thumbs": "thumbs",
+  "folder_encoded_video": "encoded-video",
+  "folder_profile": "profile",
+  "folder_backups": "backups",
   "require_mount": true,
   "manage_settings": true,
   "video_transcoding": "disabled",
@@ -71,7 +79,13 @@ echo "== build"
 "$CLI" volume rm "$VOLUME" >/dev/null 2>&1 || true
 rm -rf "$WORK"
 mkdir -p "${WORK}/share/teststore" "${WORK}/options"
-"$CLI" build --tag "$IMAGE" "${ROOT}/immich" >/dev/null 2>&1
+if [ "$CLI" = "container" ]; then
+  container system start --disable-kernel-install --timeout 60 >/dev/null 2>&1 || true
+fi
+if ! "$CLI" build --tag "$IMAGE" "${ROOT}/immich" >"${WORK}/build.log" 2>&1; then
+  tail -30 "${WORK}/build.log" >&2
+  fail "image build failed"
+fi
 "$CLI" volume create "$VOLUME" >/dev/null
 pass "image built"
 
@@ -93,10 +107,10 @@ write_options teststore
 run_container
 wait_for_immich || fail "Immich did not answer within 6 minutes"
 pass "Immich answers on port 2283"
-for folder in upload library thumbs encoded-video profile backups; do
-  [ -f "${WORK}/share/teststore/immich/${folder}/.immich" ] || fail "missing ${folder}/.immich on the share"
+for folder in library/library library/upload thumbs encoded-video profile backups; do
+  [ -f "${WORK}/share/teststore/${folder}/.immich" ] || fail "missing ${folder}/.immich on the share"
 done
-pass "Immich's media folders and markers are on the share"
+pass "Immich's six folders and markers are on the share, in the split layout"
 if cexec sh -c 'ps aux 2>/dev/null || true' | grep -qi 'machine.learning'; then fail "a machine learning process is running"; fi
 
 echo "== 3. upload through the API"
@@ -123,7 +137,7 @@ FOUND=""
 for i in $(seq 1 30); do
   while IFS= read -r candidate; do
     if [ "$(shasum -a 256 "$candidate" | awk '{print $1}')" = "$WANT" ]; then FOUND="$candidate"; fi
-  done < <(find "${WORK}/share/teststore/immich/upload" "${WORK}/share/teststore/immich/library" -type f ! -name '.immich' 2>/dev/null)
+  done < <(find "${WORK}/share/teststore/library" -type f ! -name '.immich' 2>/dev/null)
   [ -n "$FOUND" ] && break
   sleep 2
 done
@@ -138,12 +152,20 @@ MOVED=""
 for i in $(seq 1 45); do
   while IFS= read -r candidate; do
     if [ "$(shasum -a 256 "$candidate" | awk '{print $1}')" = "$WANT" ]; then MOVED="$candidate"; fi
-  done < <(find "${WORK}/share/teststore/immich/library" -type f -path '*/2025/12/*' 2>/dev/null)
+  done < <(find "${WORK}/share/teststore/library/library" -type f -path '*/2025/12/*' 2>/dev/null)
   [ -n "$MOVED" ] && break
   sleep 2
 done
 [ -n "$MOVED" ] || fail "the original was not filed under library/<person>/2025/12/ within 90s"
 pass "original filed by person, year and month: ${MOVED#"${WORK}"/share/teststore/}"
+THUMBS=""
+for i in $(seq 1 30); do
+  THUMBS="$(find "${WORK}/share/teststore/thumbs" -type f ! -name '.immich' 2>/dev/null | head -1)"
+  [ -n "$THUMBS" ] && break
+  sleep 2
+done
+[ -n "$THUMBS" ] || fail "no thumbnail was written to the thumbs folder"
+pass "thumbnails go to their own folder: ${THUMBS#"${WORK}"/share/teststore/}"
 
 echo "== 4. database dump for Home Assistant backups"
 cexec /usr/local/bin/afterimage-backup-pre >/dev/null || fail "backup_pre script failed"
@@ -161,6 +183,19 @@ CODE="$(cexec curl -s -o /dev/null -w '%{http_code}' "${BASE}/assets/${ASSET_ID}
 [ "$CODE" = "200" ] || fail "the asset is gone after a restart (HTTP ${CODE})"
 if "$CLI" logs "$NAME" 2>&1 | grep -q "was not properly shut down"; then fail "PostgreSQL had to recover from an unclean shutdown"; fi
 pass "data survives a clean stop and start"
+
+echo "== 6. Immich dies and comes back"
+# Immich renames its main process (the one that starts the workers) to
+# "immich"; the API worker is "immich-api".
+MAIN_PID="$(cexec pgrep -o -f '^immich$' || true)"
+[ -n "$MAIN_PID" ] || fail "could not find the Immich process"
+cexec kill -KILL "$MAIN_PID"
+sleep 5
+"$CLI" logs "$NAME" 2>&1 | grep -q "Immich stopped unexpectedly" || fail "the supervisor did not notice Immich dying"
+wait_for_immich || fail "Immich was not restarted"
+CODE="$(cexec curl -s -o /dev/null -w '%{http_code}' "${BASE}/assets/${ASSET_ID}" -H "Authorization: Bearer ${TOKEN}")"
+[ "$CODE" = "200" ] || fail "the asset is unreachable after the restart (HTTP ${CODE})"
+pass "Immich is restarted after it dies"
 
 echo
 echo "All smoke tests passed."

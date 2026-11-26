@@ -24,9 +24,11 @@ iPhone or iPad                       Home Assistant OS on the Pi 5
                               │
                               ▼
                             NAS share (Home Assistant network storage, usage "Share")
-                              /share/<storage>/immich/library, upload, profile   originals
-                              /share/<storage>/immich/backups                     database dumps
-                              /share/<storage>/immich/thumbs, encoded-video       generated files
+                              /share/Immich/library/library, library/upload   originals
+                              /share/Immich/profile                           profile pictures
+                              /share/Immich/backups                           database dumps
+                              /share/Immich/thumbs, encoded-video             generated files
+                              (one ZFS dataset each on the NAS, as the old instance had them)
 ```
 
 Two apps live in this repository: `immich/` (the Afterimage app) and
@@ -45,7 +47,9 @@ Two apps live in this repository: `immich/` (the Afterimage app) and
 | Database dumps | Immich's built-in daily dump, written to `backups/` on the share, last 14 kept. A second dump is taken into `/data` just before every Home Assistant backup |
 | Generated files | Thumbnails and transcoded video also on the share for now, so the Pi's disk holds only the database. Revisit if browsing is slow |
 | Mount guard | The app refuses to start Immich unless the share path is a real mount point, and stops Immich if the mount disappears. Immich's own `.immich` folder markers are a second check |
-| Settings | Generated from the app's options into an Immich config file, so a fresh install comes up already trimmed. This locks those settings in Immich's web UI. An option turns this off |
+| Folder layout | One app option per Immich folder, each a path inside the share, so the existing layout on the NAS is used as it is. The app links the six folders together inside its container (`/afterimage/media`), which is the media location Immich sees |
+| Settings | Kept in Immich's database, as the restored instance had them. An option (`manage_settings`, off) can instead generate a trimmed Immich config file for a fresh install |
+| Existing instance | The household's previous Immich (Docker on the NAS server, v3.4.1, 4 users, about 44,700 assets) is restored, not rebuilt: its folders are used in place and its database comes from a dump. The old server is stopped for good |
 | Web access | Immich cannot be served under a sub-path, so no Home Assistant ingress. The app page has an Open Web UI button to port 2283, and Traefik serves the real hostname |
 | TLS and port 443 | Traefik app in this repository: Let's Encrypt by DNS-01, one router to the Immich app over the internal network, upload timeouts raised |
 | Image build | On the Pi from the Dockerfile. Later, GitHub Actions can build the image and Home Assistant pulls it instead (Phase 7) |
@@ -106,10 +110,14 @@ mount. **Met**, in the container.
 
 - [x] Mount the NAS in Settings > System > Storage with usage Share (NFS,
       named `Immich`, 26 Nov 2026)
-- [ ] Add this repository in Home Assistant, install the app, check the
-      storage name, start
-- [ ] Create the admin and one account per person, each with a storage label
-      so files land in `library/<person>/<year>/<month>/`
+- [x] Add this repository in Home Assistant, install the app, start
+      (first start worked, 26 Nov 2026)
+- [x] Fresh dump of the old instance taken from a ZFS snapshot of its
+      stopped database (`data/immich@afterimage-before-restore-20261126T194340Z`)
+      and test-restored into the app's PostgreSQL 17: 44,718 assets, 4 users
+- [ ] Update the app, check the folder options, turn `manage_settings` off,
+      restart, restore the dump in Immich, turn machine learning off
+- [ ] Check users, albums and a sample of photos and videos
 - [ ] Upload from one phone on Wi-Fi with the Immich app
 - [ ] Watch memory on the Pi during a large first upload
 

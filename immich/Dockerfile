@@ -48,7 +48,8 @@ ENV AFTERIMAGE_PG_MAJOR=${PG_MAJOR}
 
 COPY rootfs /
 
-RUN chmod 0755 /usr/local/bin/afterimage-run /usr/local/bin/afterimage-backup-pre
+RUN chmod 0755 /usr/local/bin/afterimage-run /usr/local/bin/afterimage-backup-pre \
+ && mkdir -p /afterimage/media
 
 # The base image's entrypoint is `tini -- /bin/bash -c`; keep tini, replace
 # the command with the supervisor.

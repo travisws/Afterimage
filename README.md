@@ -23,8 +23,8 @@ docs/plan.md      The plan: decisions, phases, risks, confirmed facts
 - **Database:** PostgreSQL inside the app, stored on the Pi in the app's
   private `/data`.
 - **Originals and database dumps:** on the NAS share that Home Assistant
-  mounts as network storage with usage Share, under
-  `/share/<storage name>/immich/`.
+  mounts as network storage with usage Share. One option per Immich folder
+  says where it is on the share, so an existing layout is used as it is.
 - **Machine learning:** off. The Pi has 4 GB of RAM and Immich's docs say to
   run that way.
 - **Safety:** Immich is only started while the share is really mounted, so
