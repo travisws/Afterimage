@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Run by Home Assistant just before it backs up this app (backup_pre).
+# The live database folder is excluded from the backup because copying it
+# while PostgreSQL runs gives an unusable copy. This writes a consistent dump
+# into /data instead, which the backup does include.
+
+set -Eeuo pipefail
+
+DATA_DIR="${AFTERIMAGE_DATA_DIR:-/data}"
+PG_MAJOR="${AFTERIMAGE_PG_MAJOR:-17}"
+PG_BIN="/usr/lib/postgresql/${PG_MAJOR}/bin"
+OUT_DIR="${DATA_DIR}/db-dump"
+OUT="${OUT_DIR}/immich-before-ha-backup.sql.gz"
+
+mkdir -p "$OUT_DIR"
+setpriv --reuid=postgres --regid=postgres --init-groups -- \
+  "${PG_BIN}/pg_dumpall" --clean --if-exists -h /run/postgresql -U postgres \
+  | gzip > "${OUT}.tmp"
+# An empty or truncated dump must not replace a good one.
+gzip -t "${OUT}.tmp"
+mv -f "${OUT}.tmp" "$OUT"
+echo "afterimage: database dump written to ${OUT} ($(stat -c %s "$OUT") bytes)"

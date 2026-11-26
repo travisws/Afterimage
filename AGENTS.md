@@ -17,9 +17,10 @@ An earlier design (a custom iOS app and Go server) was dropped on 26 Nov
 
 Update this at the end of every phase.
 
-- **Phase:** 1 (the Immich app image), in progress
-- **Blocked on:** nothing for Phase 1. Phase 2 needs the owner's values
-  listed at the end of `docs/plan.md`
+- **Phase:** 1 (the Immich app image) done in a container on 26 Nov 2026.
+  Next is Phase 2, on the Pi
+- **Blocked on:** the owner's values listed at the end of `docs/plan.md`
+  (storage name first), and a first install on the Pi
 - **Last result from the Pi:** none yet
 
 ## Hard rules

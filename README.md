@@ -4,9 +4,9 @@ Private photo and video backup for one household, built on
 [Immich](https://immich.app) and packaged as Home Assistant apps for a
 Raspberry Pi 5.
 
-> **Status:** Phase 1 of [docs/plan.md](docs/plan.md). The Immich app builds
-> and is being tested in a container. It has not run on the Pi yet, and the
-> Traefik app is not written.
+> **Status:** Phase 1 of [docs/plan.md](docs/plan.md) is done: the Immich
+> app builds and passes its smoke test in an arm64 container. It has not run
+> on the Pi yet (Phase 2), and the Traefik app is not written (Phase 3).
 
 ## What is here
 

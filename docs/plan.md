@@ -76,23 +76,31 @@ Each phase ends with something that can be checked.
 
 ### Phase 1: the Immich app image
 
-- [ ] `immich/` app folder: `config.yaml`, `Dockerfile`, supervisor and
-      helper scripts, default Immich config, `DOCS.md`
-- [ ] PostgreSQL with the vector extension Immich requires, Valkey, and the
-      pinned Immich server in one image
-- [ ] First start: create the database with a generated password kept in
-      `/data`, create the media folders on the share
-- [ ] Mount guard at start and while running
-- [ ] Clean shutdown: Immich first, then PostgreSQL, inside the stop timeout
-- [ ] Pre-backup dump hook, and the raw database folder excluded from Home
-      Assistant backups
-- [ ] Build for arm64 on the Mac and smoke-test in a Linux container: server
-      answers, a file uploaded through the API lands under the "share"
-      folder byte for byte, a database dump appears, a restart keeps the data
+Built and passing `scripts/smoke-test.sh` in an arm64 Linux container on
+26 Nov 2026. Not yet run on the Pi.
+
+- [x] `immich/` app folder: `config.yaml`, `Dockerfile`, supervisor and
+      helper scripts, generated Immich config, `DOCS.md`
+- [x] PostgreSQL 17 with pgvector and VectorChord 0.4.3 (the release Immich's
+      own database image uses, pinned by checksum), Valkey, and Immich v3.4.2
+      in one image
+- [x] First start: database created with a generated password kept in
+      `/data`, media folders created on the share
+- [x] Mount guard at start (tested). The same check runs every 15 s while
+      running and stops Immich if the mount goes away; that path is written
+      but cannot be exercised in the container test, so test it on the Pi by
+      taking the NAS offline
+- [x] Clean shutdown: Immich, then Valkey, then PostgreSQL, inside the stop
+      timeout (tested: no forced kill, no crash recovery on the next start)
+- [x] Pre-backup dump script (tested by running it). Home Assistant calling
+      it, and the `backup_exclude` pattern, can only be checked on the Pi
+- [x] Smoke test: server answers; an upload lands on the share byte for byte
+      and is filed under `library/<person>/<year>/<month>/`; machine learning
+      off and the other managed settings in effect; a restart keeps the data
 
 **Done when:** the container passes the smoke test from a clean start and
 after a restart, and refuses to run Immich when the share folder is not a
-mount.
+mount. **Met**, in the container.
 
 ### Phase 2: on the Pi, home network only
 

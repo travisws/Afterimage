@@ -1,0 +1,48 @@
+name: Afterimage (Immich)
+version: "3.4.2-1"
+slug: afterimage
+description: >-
+  Immich photo and video backup, trimmed for a Raspberry Pi. Database on the
+  device, originals and database dumps on a network share.
+url: https://github.com/travisws/Afterimage
+arch:
+  - aarch64
+startup: application
+boot: auto
+# Seconds the Supervisor waits on stop. PostgreSQL needs time to shut down
+# cleanly; the supervisor script uses most of this.
+timeout: 120
+ports:
+  2283/tcp: 2283
+ports_description:
+  2283/tcp: Immich web interface and API
+webui: "http://[HOST]:[PORT:2283]"
+map:
+  - type: share
+    read_only: false
+# The live database folder cannot be copied safely while it runs. A dump is
+# written into /data just before each backup, and the raw folder is left out.
+backup: hot
+backup_pre: /usr/local/bin/afterimage-backup-pre
+backup_exclude:
+  - "postgres/*"
+options:
+  storage_name: null
+  storage_subfolder: immich
+  require_mount: true
+  manage_settings: true
+  video_transcoding: disabled
+  storage_template: "{{y}}/{{MM}}/{{filename}}"
+  database_dumps_kept: 14
+  log_level: log
+schema:
+  storage_name: str
+  storage_subfolder: str
+  require_mount: bool
+  manage_settings: bool
+  video_transcoding: "list(disabled|required)"
+  storage_template: str
+  database_dumps_kept: "int(1,90)"
+  log_level: "list(verbose|debug|log|warn|error)"
+  external_url: "url?"
+  timezone: "str?"

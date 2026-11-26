@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Afterimage supervisor: starts PostgreSQL, Valkey and the Immich server in
+# one container, keeps Immich off whenever the network share is not mounted,
+# and shuts everything down in order.
+
+set -Eeuo pipefail
+
+DATA_DIR="${AFTERIMAGE_DATA_DIR:-/data}"
+RUN_DIR=/run/afterimage
+PG_MAJOR="${AFTERIMAGE_PG_MAJOR:-17}"
+PG_BIN="/usr/lib/postgresql/${PG_MAJOR}/bin"
+PGDATA="${DATA_DIR}/postgres/${PG_MAJOR}"
+PG_SOCKET_DIR=/run/postgresql
+SECRETS_DIR="${DATA_DIR}/secrets"
+DB_PASSWORD_FILE="${SECRETS_DIR}/db_password"
+DB_NAME=immich
+CHECK_SECONDS=15
+
+pg_pid=""
+valkey_pid=""
+immich_pid=""
+sleep_pid=""
+last_notice=0
+
+log() { printf '%s afterimage: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+as_postgres() { setpriv --reuid=postgres --regid=postgres --init-groups -- "$@"; }
+
+# True while process $1 exists and is not a zombie.
+alive() {
+  local state
+  state="$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f1)"
+  [ -n "$state" ] && [ "$state" != "Z" ]
+}
+
+# Stop one child: send a signal, wait, then kill it if it will not go.
+# With group=1 the child was started with setsid, and the signal goes to its
+# whole process group, so worker processes it forked stop with it.
+stop_child() {
+  local pid="$1" signal="$2" seconds="$3" name="$4" group="${5:-0}" waited=0 target
+  [ -n "$pid" ] || return 0
+  target="$pid"
+  [ "$group" = "1" ] && target="-${pid}"
+  if ! kill -0 -- "$target" 2>/dev/null; then
+    wait "$pid" 2>/dev/null || true
+    return 0
+  fi
+  log "stopping ${name}"
+  kill -s "$signal" -- "$target" 2>/dev/null || true
+  while true; do
+    if ! alive "$pid"; then
+      wait "$pid" 2>/dev/null || true
+      [ "$group" = "1" ] || break
+      kill -0 -- "$target" 2>/dev/null || break
+    fi
+    if [ "$waited" -ge "$seconds" ]; then
+      log "${name} did not stop in ${seconds}s; killing it"
+      kill -s KILL -- "$target" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+shutdown_all() {
+  trap '' TERM INT
+  [ -n "$sleep_pid" ] && kill "$sleep_pid" 2>/dev/null || true
+  stop_child "$immich_pid" TERM 30 "Immich" 1
+  immich_pid=""
+  stop_child "$valkey_pid" TERM 10 "Valkey"
+  valkey_pid=""
+  # SIGINT is PostgreSQL's "fast shutdown": finish cleanly, drop clients.
+  stop_child "$pg_pid" INT 60 "PostgreSQL"
+  pg_pid=""
+}
+
+on_signal() {
+  log "stop requested"
+  shutdown_all
+  log "stopped"
+  exit 0
+}
+
+fatal() {
+  log "ERROR: $*"
+  shutdown_all
+  exit 1
+}
+
+start_postgres() {
+  mkdir -p "$PGDATA" "$PG_SOCKET_DIR" "$SECRETS_DIR"
+  chown postgres:postgres "${DATA_DIR}/postgres" "$PGDATA" "$PG_SOCKET_DIR"
+  chmod 0700 "$PGDATA" "$SECRETS_DIR"
+
+  if [ ! -s "$DB_PASSWORD_FILE" ]; then
+    (umask 077; node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))" > "$DB_PASSWORD_FILE")
+  fi
+  chmod 0600 "$DB_PASSWORD_FILE"
+  DB_PASSWORD="$(cat "$DB_PASSWORD_FILE")"
+
+  if [ ! -s "${PGDATA}/PG_VERSION" ]; then
+    if [ -n "$(ls -A "$PGDATA" 2>/dev/null)" ]; then
+      fatal "${PGDATA} holds files but is not a database. Refusing to overwrite it."
+    fi
+    log "creating a new PostgreSQL ${PG_MAJOR} database in ${PGDATA}"
+    local pwfile="${RUN_DIR}/initdb-password"
+    (umask 077; printf '%s\n' "$DB_PASSWORD" > "$pwfile")
+    chown postgres:postgres "$pwfile"
+    as_postgres "${PG_BIN}/initdb" -D "$PGDATA" --username=postgres --pwfile="$pwfile" \
+      --data-checksums --encoding=UTF8 --locale=C.UTF-8 \
+      --auth-local=peer --auth-host=scram-sha-256 >/dev/null
+    rm -f "$pwfile"
+  fi
+
+  # Listens on the container's loopback only; nothing outside can reach it.
+  # Started directly (not through a shell function) so that pg_pid is the
+  # postmaster itself and the shutdown signal reaches it.
+  setpriv --reuid=postgres --regid=postgres --init-groups -- "${PG_BIN}/postgres" -D "$PGDATA" \
+    -c listen_addresses=127.0.0.1 -c port=5432 \
+    -c unix_socket_directories="$PG_SOCKET_DIR" \
+    -c shared_preload_libraries=vchord.so \
+    -c shared_buffers=256MB \
+    -c max_parallel_workers_per_gather=0 \
+    -c wal_compression=on \
+    -c logging_collector=off &
+  pg_pid=$!
+
+  local waited=0
+  until as_postgres "${PG_BIN}/pg_isready" -q -h "$PG_SOCKET_DIR"; do
+    kill -0 "$pg_pid" 2>/dev/null || fatal "PostgreSQL exited while starting. See the lines above."
+    [ "$waited" -lt 120 ] || fatal "PostgreSQL was not ready after 120s."
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  # Keep the role's password equal to the stored one, so a restored /data
+  # with a different secrets file still works. The password is hex only.
+  as_postgres "${PG_BIN}/psql" -q -h "$PG_SOCKET_DIR" -d postgres -v ON_ERROR_STOP=1 \
+    -c "ALTER USER postgres PASSWORD '${DB_PASSWORD}'" >/dev/null
+  if ! as_postgres "${PG_BIN}/psql" -h "$PG_SOCKET_DIR" -d postgres -tAc \
+      "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
+    as_postgres "${PG_BIN}/createdb" -h "$PG_SOCKET_DIR" "$DB_NAME"
+    log "created database ${DB_NAME}"
+  fi
+  log "PostgreSQL is ready"
+}
+
+start_valkey() {
+  local user=nobody
+  getent passwd valkey >/dev/null && user=valkey
+  # Job queue only: no persistence, loopback only.
+  setpriv --reuid="$user" --regid="$(id -g "$user")" --clear-groups -- \
+    valkey-server --bind 127.0.0.1 --port 6379 --save '' --appendonly no \
+    --dir /tmp --daemonize no --logfile '' --loglevel warning &
+  valkey_pid=$!
+  log "Valkey started"
+}
+
+# True only when the storage folder is there and, unless turned off, is a
+# real mount. This is what stops photos landing on the device's own disk.
+share_ready() {
+  [ -d "$STORAGE_MOUNT" ] || return 1
+  if [ "$REQUIRE_MOUNT" = "true" ]; then
+    mountpoint -q "$STORAGE_MOUNT" || return 1
+  fi
+  return 0
+}
+
+start_immich() {
+  mkdir -p "$MEDIA_ROOT" || { log "cannot create ${MEDIA_ROOT}"; return 1; }
+  if ! (: > "${MEDIA_ROOT}/.afterimage-write-test" && rm -f "${MEDIA_ROOT}/.afterimage-write-test"); then
+    log "${MEDIA_ROOT} is not writable"
+    return 1
+  fi
+  log "starting Immich with media in ${MEDIA_ROOT}"
+  (
+    export IMMICH_MEDIA_LOCATION="$MEDIA_ROOT"
+    export DB_HOSTNAME=127.0.0.1 DB_PORT=5432 DB_USERNAME=postgres
+    export DB_PASSWORD DB_DATABASE_NAME="$DB_NAME"
+    export REDIS_HOSTNAME=127.0.0.1 REDIS_PORT=6379
+    export IMMICH_LOG_LEVEL="$LOG_LEVEL"
+    [ -n "$IMMICH_CONFIG_PATH" ] && export IMMICH_CONFIG_FILE="$IMMICH_CONFIG_PATH"
+    [ -n "$TIMEZONE" ] && export TZ="$TIMEZONE"
+    cd /usr/src/app
+    # Own session and process group, so the whole of Immich can be signalled.
+    exec setsid start.sh
+  ) &
+  immich_pid=$!
+}
+
+notice_waiting() {
+  local now
+  now="$(date +%s)"
+  if [ $((now - last_notice)) -ge 60 ]; then
+    if [ "$REQUIRE_MOUNT" = "true" ]; then
+      log "waiting: ${STORAGE_MOUNT} is not a mounted network share. Immich stays off until it is. Check Settings > System > Storage."
+    else
+      log "waiting: ${STORAGE_MOUNT} does not exist."
+    fi
+    last_notice="$now"
+  fi
+}
+
+trap on_signal TERM INT
+
+mkdir -p "$RUN_DIR"
+node /usr/local/lib/afterimage/prepare.mjs "${RUN_DIR}/env"
+# shellcheck disable=SC1091
+. "${RUN_DIR}/env"
+
+log "Afterimage starting (Immich ${IMMICH_SOURCE_REF:-unknown}, PostgreSQL ${PG_MAJOR})"
+[ "$REQUIRE_MOUNT" = "true" ] || log "WARNING: require_mount is off. Files will be written to ${MEDIA_ROOT} whether or not it is a network share."
+
+start_postgres
+start_valkey
+
+while true; do
+  if share_ready; then
+    if [ -z "$immich_pid" ]; then
+      start_immich || notice_waiting
+    fi
+  else
+    if [ -n "$immich_pid" ]; then
+      log "network share at ${STORAGE_MOUNT} is gone; stopping Immich until it returns"
+      stop_child "$immich_pid" TERM 30 "Immich" 1
+      immich_pid=""
+      last_notice=0
+    fi
+    notice_waiting
+  fi
+
+  sleep "$CHECK_SECONDS" &
+  sleep_pid=$!
+  finished=""
+  wait -n -p finished "$sleep_pid" "$pg_pid" "$valkey_pid" ${immich_pid:+"$immich_pid"} || true
+  if [ "$finished" != "$sleep_pid" ]; then
+    kill "$sleep_pid" 2>/dev/null || true
+    wait "$sleep_pid" 2>/dev/null || true
+  fi
+  sleep_pid=""
+
+  case "$finished" in
+    "$pg_pid") pg_pid=""; fatal "PostgreSQL stopped unexpectedly." ;;
+    "$valkey_pid") valkey_pid=""; fatal "Valkey stopped unexpectedly." ;;
+  esac
+  if [ -n "$immich_pid" ] && [ "$finished" = "$immich_pid" ]; then
+    immich_pid=""
+    if share_ready; then
+      fatal "Immich stopped unexpectedly. See its messages above."
+    fi
+    log "Immich stopped after the network share went away"
+    last_notice=0
+  fi
+done
