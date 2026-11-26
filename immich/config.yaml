@@ -27,7 +27,7 @@ backup_pre: /usr/local/bin/afterimage-backup-pre
 backup_exclude:
   - "postgres/*"
 options:
-  storage_name: null
+  storage_name: Immich
   storage_subfolder: immich
   require_mount: true
   manage_settings: true

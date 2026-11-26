@@ -32,9 +32,9 @@ docs/plan.md      The plan: decisions, phases, risks, confirmed facts
 
 ## Installing
 
-Until this repository is public, Home Assistant cannot clone it. Copy the
-`immich/` folder into Home Assistant's local apps folder instead, then install
-it from Settings > Apps. Full steps and every option are in
+Add `https://github.com/travisws/Afterimage` as an app repository in Home
+Assistant (Settings > Apps > Install app > Repositories), then install
+**Afterimage (Immich)**. Full steps and every option are in
 [immich/DOCS.md](immich/DOCS.md).
 
 ## Phones

@@ -11,7 +11,8 @@ Phones use the stock Immich app. This repository is the Home Assistant app
 repository and is the only repository used.
 
 An earlier design (a custom iOS app and Go server) was dropped on 26 Nov
-2026. Its documents are on the `afterimage-docs` branch and are not current.
+2026. Work only from `docs/plan.md`. The repository is public and has one
+branch, `main`.
 
 ## Current phase
 
@@ -19,8 +20,9 @@ Update this at the end of every phase.
 
 - **Phase:** 1 (the Immich app image) done in a container on 26 Nov 2026.
   Next is Phase 2, on the Pi
-- **Blocked on:** the owner's values listed at the end of `docs/plan.md`
-  (storage name first), and a first install on the Pi
+- **Blocked on:** the first install on the Pi (the NAS is mounted over NFS
+  as network storage `Immich`). Traefik (Phase 3) needs the hostname and DNS
+  provider listed at the end of `docs/plan.md`
 - **Last result from the Pi:** none yet
 
 ## Hard rules

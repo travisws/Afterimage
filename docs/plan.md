@@ -36,7 +36,7 @@ Two apps live in this repository: `immich/` (the Afterimage app) and
 
 | Topic | Decision |
 | --- | --- |
-| Repository | `travisws/Afterimage` only. Private for now; the owner makes it public later. Home Assistant clones a repository with Git, so until it is public the app is installed from Home Assistant's local apps folder |
+| Repository | `travisws/Afterimage` only, public, one branch (`main`). Home Assistant installs the app by adding this repository's URL |
 | Packaging | One Home Assistant app, one container: Immich server, PostgreSQL and Valkey together, started and watched by one small supervisor script. `arch: aarch64` |
 | Immich version | Pinned to an exact release in the Dockerfile (v3.4.2 today). Updated on purpose, never `latest` |
 | Machine learning | Off. No machine-learning container. Immich's own docs say 4 GB machines should run this way |
@@ -48,7 +48,7 @@ Two apps live in this repository: `immich/` (the Afterimage app) and
 | Settings | Generated from the app's options into an Immich config file, so a fresh install comes up already trimmed. This locks those settings in Immich's web UI. An option turns this off |
 | Web access | Immich cannot be served under a sub-path, so no Home Assistant ingress. The app page has an Open Web UI button to port 2283, and Traefik serves the real hostname |
 | TLS and port 443 | Traefik app in this repository: Let's Encrypt by DNS-01, one router to the Immich app over the internal network, upload timeouts raised |
-| Image build | On the Pi from the Dockerfile at first. Once the repository is public, GitHub Actions builds the image and Home Assistant pulls it |
+| Image build | On the Pi from the Dockerfile. Later, GitHub Actions can build the image and Home Assistant pulls it instead (Phase 7) |
 
 ## Facts confirmed from current documentation
 
@@ -104,9 +104,10 @@ mount. **Met**, in the container.
 
 ### Phase 2: on the Pi, home network only
 
-- [ ] Mount the NAS in Settings > System > Storage with usage Share
-- [ ] Copy `immich/` into Home Assistant's local apps folder, install, set
-      the share name, start
+- [x] Mount the NAS in Settings > System > Storage with usage Share (NFS,
+      named `Immich`, 26 Nov 2026)
+- [ ] Add this repository in Home Assistant, install the app, check the
+      storage name, start
 - [ ] Create the admin and one account per person, each with a storage label
       so files land in `library/<person>/<year>/<month>/`
 - [ ] Upload from one phone on Wi-Fi with the Immich app
@@ -152,15 +153,12 @@ person's library intact.
 - [ ] Update routine: read the Immich release notes, change the pinned
       version, rebuild, restore drill before big version jumps
 
-### Phase 7: public repository and prebuilt image
+### Phase 7: prebuilt image
 
-- [ ] Remove anything personal, make the repository public
 - [ ] GitHub Actions builds the arm64 image to GHCR; `image:` added to
-      `config.yaml`
-- [ ] Add the repository URL in Home Assistant and move from the local copy.
-      The app gets a new identity when its source changes, so this is a
-      reinstall followed by a restore from the share. Do it before the family
-      depends on it, or directly after a successful restore drill
+      `config.yaml`, so the Pi pulls instead of building
+- [ ] Keep the repository URL unchanged: Home Assistant ties the app's
+      identity to it
 
 ## Risks
 
@@ -182,8 +180,6 @@ person's library intact.
 
 - The hostname for Immich, and the DNS provider (the API token goes into the
   Traefik app's options, never into this repository)
-- The name Home Assistant gives the network storage (the folder under
-  `/share/`), and whether the NAS share is SMB or NFS
 - What the Pi boots from (SD card or SSD) and its free space
 - Whether a Traefik app is already installed on the Pi, and whether anything
   holds port 443
@@ -194,5 +190,5 @@ person's library intact.
 ## Dropped from the earlier plan
 
 The custom iOS app and upload extension, the Go server, the phone spikes, and
-encryption at rest with a master password. The earlier documents are kept on
-the `afterimage-docs` branch.
+encryption at rest with a master password. Those documents were removed on
+26 Nov 2026 at the owner's request.

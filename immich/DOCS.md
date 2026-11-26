@@ -14,20 +14,20 @@ device. Photos, videos and database dumps go to a network share.
 
 ## Install
 
-While the repository is private, copy the `immich` folder into Home
-Assistant's local apps folder (reachable through the Samba or SSH apps), then
-Settings > Apps > Install app, refresh, and pick **Afterimage (Immich)** under
-local apps. The first install builds the image on the device, which downloads
-about 1.5 GB and takes a while.
-
-Once the repository is public, add
-`https://github.com/travisws/Afterimage` under Repositories instead.
+1. Settings > Apps > Install app. In the top-right menu, select
+   **Repositories**, add `https://github.com/travisws/Afterimage`, and close
+   the dialog.
+2. Pick **Afterimage (Immich)** from the new Afterimage section and select
+   **Install**. The first install builds the image on the device, which
+   downloads about 1.5 GB and takes a while.
+3. On the **Configuration** tab, check that `storage_name` matches the name
+   of your network storage, then **Start**.
 
 ## Options
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `storage_name` | none, required | The network storage name from step 1. The app uses `/share/<storage_name>` |
+| `storage_name` | `Immich` | The network storage name from step 1, exactly as Home Assistant shows it. The app uses `/share/<storage_name>` |
 | `storage_subfolder` | `immich` | Folder inside that share for everything Immich stores |
 | `require_mount` | on | Start Immich only when `/share/<storage_name>` is a real mount. Leave on. Turning it off lets files be written to this device's own disk |
 | `manage_settings` | on | Apply the trimmed settings below from a config file. Immich then shows those settings as read-only in its web UI. Turn off to manage every setting in Immich yourself |
