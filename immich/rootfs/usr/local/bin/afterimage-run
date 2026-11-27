@@ -122,13 +122,20 @@ start_postgres() {
   fi
 
   # Listens on the container's loopback only; nothing outside can reach it.
+  # Memory is sized for a 4 GB Raspberry Pi and one household's library:
+  # 128 MB cache, small per-query and maintenance budgets, and room for the
+  # few dozen connections Immich's workers open.
   # Started directly (not through a shell function) so that pg_pid is the
   # postmaster itself and the shutdown signal reaches it.
   setpriv --reuid=postgres --regid=postgres --init-groups -- "${PG_BIN}/postgres" -D "$PGDATA" \
     -c listen_addresses=127.0.0.1 -c port=5432 \
     -c unix_socket_directories="$PG_SOCKET_DIR" \
     -c shared_preload_libraries=vchord.so \
-    -c shared_buffers=256MB \
+    -c shared_buffers=128MB \
+    -c work_mem=4MB \
+    -c maintenance_work_mem=64MB \
+    -c effective_cache_size=512MB \
+    -c max_connections=50 \
     -c max_parallel_workers_per_gather=0 \
     -c wal_compression=on \
     -c logging_collector=off &
