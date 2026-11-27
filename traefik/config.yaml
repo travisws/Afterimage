@@ -1,9 +1,9 @@
-name: Afterimage Traefik
-version: "3.8.0-1"
+name: Afterimage Gateway
+version: "3.8.0-2"
 slug: traefik
 description: >-
-  HTTPS for Immich at your own domain. Traefik with a Let's Encrypt
-  certificate obtained through Cloudflare DNS-01.
+  HTTPS for Afterimage at your own domain, with a Let's Encrypt certificate
+  obtained through Cloudflare DNS-01. Uses the open-source Traefik Proxy.
 url: https://github.com/travisws/Afterimage
 arch:
   - aarch64

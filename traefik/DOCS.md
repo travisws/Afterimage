@@ -1,8 +1,8 @@
-# Afterimage Traefik
+# Afterimage Gateway
 
-HTTPS for Immich at your own domain, such as `https://photos.dpool.dev`.
-Traefik gets a Let's Encrypt certificate through Cloudflare (DNS-01), renews
-it by itself, and passes traffic to the Afterimage (Immich) app over Home
+HTTPS for Afterimage at your own domain, such as `https://photos.dpool.dev`.
+It runs Traefik Proxy, which gets a Let's Encrypt certificate through Cloudflare (DNS-01), renews
+it by itself, and passes traffic to the Afterimage app over Home
 Assistant's internal network. Uploads are not buffered and have no time
 limit, so large videos from phones go through.
 
@@ -21,7 +21,7 @@ limit, so large videos from phones go through.
 ## Install
 
 1. Settings > Apps > Install app, top-right menu > **Check for updates**,
-   then install **Afterimage Traefik** from the Afterimage section.
+   then install **Afterimage Gateway** from the Afterimage section.
 2. On the **Configuration** tab fill in the options below and save.
 3. Start it and open the **Log** tab. Within about a minute Traefik logs the
    new certificate. Errors about Cloudflare there mean the token or its

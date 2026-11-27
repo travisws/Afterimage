@@ -1,6 +1,6 @@
-# Afterimage (Immich)
+# Afterimage
 
-Immich server, PostgreSQL and Valkey in one app. The database stays on this
+The Immich photo server, PostgreSQL and Valkey in one app. The database stays on this
 device. Photos, videos and database dumps go to a network share.
 
 ## Before you install
@@ -17,7 +17,7 @@ device. Photos, videos and database dumps go to a network share.
 1. Settings > Apps > Install app. In the top-right menu, select
    **Repositories**, add `https://github.com/travisws/Afterimage`, and close
    the dialog.
-2. Pick **Afterimage (Immich)** from the new Afterimage section and select
+2. Pick **Afterimage** from the new Afterimage section and select
    **Install**. The first install builds the image on the device, which
    downloads about 1.5 GB and takes a while.
 3. On the **Configuration** tab, check that `storage_name` matches the name

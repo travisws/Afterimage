@@ -1,9 +1,10 @@
-name: Afterimage (Immich)
-version: "3.4.2-3"
+name: Afterimage
+version: "3.4.2-4"
 slug: afterimage
 description: >-
-  Immich photo and video backup, trimmed for a Raspberry Pi. Database on the
-  device, originals and database dumps on a network share.
+  Private photo and video backup for the household, trimmed for a Raspberry
+  Pi. Runs the open-source Immich server. Database on the device; originals
+  and database dumps on a network share.
 url: https://github.com/travisws/Afterimage
 arch:
   - aarch64

@@ -1,4 +1,4 @@
-# Afterimage Traefik: HTTPS in front of the Afterimage (Immich) app, with a
+# Afterimage Gateway: HTTPS in front of the Afterimage app, with a
 # Let's Encrypt certificate obtained by DNS-01 through Cloudflare.
 #
 # To update Traefik: read its release notes, change TRAEFIK_VERSION here and

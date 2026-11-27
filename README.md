@@ -13,8 +13,8 @@ Raspberry Pi 5.
 
 ```
 repository.yaml   Makes this a Home Assistant app repository
-immich/           The Afterimage app: Immich server, PostgreSQL and Valkey in one container
-traefik/          Traefik: HTTPS for Immich with a Let's Encrypt certificate by Cloudflare DNS-01
+immich/           "Afterimage": the Immich server, PostgreSQL and Valkey in one container
+traefik/          "Afterimage Gateway": Traefik Proxy, HTTPS with a Let's Encrypt certificate by Cloudflare DNS-01
 scripts/          Smoke tests that build and exercise each app on a Mac or Linux box
 docs/plan.md      The plan: decisions, phases, risks, confirmed facts
 ```
@@ -35,7 +35,7 @@ docs/plan.md      The plan: decisions, phases, risks, confirmed facts
 
 Add `https://github.com/travisws/Afterimage` as an app repository in Home
 Assistant (Settings > Apps > Install app > Repositories), then install
-**Afterimage (Immich)**. Full steps and every option are in
+**Afterimage**, and **Afterimage Gateway** for HTTPS at your own domain. Full steps and every option are in
 [immich/DOCS.md](immich/DOCS.md).
 
 ## Phones

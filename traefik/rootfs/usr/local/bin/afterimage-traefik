@@ -47,7 +47,7 @@ backend_host="${backend#*://}"; backend_host="${backend_host%%[:/]*}"
 if getent hosts "$backend_host" >/dev/null 2>&1; then
   log "Immich is at ${backend}"
 else
-  log "WARNING: ${backend_host} does not resolve yet. Is the Afterimage (Immich) app installed and started? Requests will fail until it does."
+  log "WARNING: ${backend_host} does not resolve yet. Is the Afterimage app installed and started? Requests will fail until it does."
 fi
 
 if [ "$staging" = "true" ]; then
