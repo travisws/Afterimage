@@ -1,5 +1,5 @@
 name: Afterimage (Immich)
-version: "3.4.2-2"
+version: "3.4.2-3"
 slug: afterimage
 description: >-
   Immich photo and video backup, trimmed for a Raspberry Pi. Database on the

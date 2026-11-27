@@ -51,6 +51,13 @@ COPY rootfs /
 RUN chmod 0755 /usr/local/bin/afterimage-run /usr/local/bin/afterimage-backup-pre \
  && mkdir -p /afterimage/media
 
+# The Immich image's own health check marks the container unhealthy whenever
+# Immich is busy starting, migrating or waiting for the share, and Home
+# Assistant's watchdog then restarts the whole app mid-task. The supervisor
+# script restarts Immich itself, and exits (so the watchdog acts) only when
+# something is really wrong.
+HEALTHCHECK NONE
+
 # The base image's entrypoint is `tini -- /bin/bash -c`; keep tini, replace
 # the command with the supervisor.
 ENTRYPOINT ["tini", "--"]
