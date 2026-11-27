@@ -35,6 +35,7 @@ device. Photos, videos and database dumps go to a network share.
 | `folder_profile` | `profile` | Where the `profile` folder (profile pictures) is |
 | `folder_backups` | `backups` | Where the `backups` folder (nightly database dumps) is |
 | `require_mount` | on | Start Immich only when `/share/<storage_name>` is a real mount. Leave on. Turning it off lets files be written to this device's own disk |
+| `keep_settings_file` | off | Keep `immich-config.json` in the config folder and apply it at every start, instead of once. See "Changing Immich's settings from a file" |
 | `manage_settings` | off | When on, apply the trimmed settings below from a config file; Immich then shows those settings as read-only. Leave off for a restored instance, so its own settings are kept |
 | `video_transcoding` | `disabled` | `disabled` keeps videos as uploaded (a Pi has no hardware video encoder). `required` transcodes only what browsers cannot play |
 | `storage_template` | `{{y}}/{{MM}}/{{filename}}` | Folder layout under each person's library folder |
@@ -53,6 +54,33 @@ With `manage_settings` on, the app sets: machine learning off, job
 concurrency lowered, database dump daily at 02:00, storage template on,
 version check off, face clustering off. With it off, turn machine learning
 off yourself in Administration > Settings, because this app does not run it.
+
+## Changing Immich's settings from a file
+
+Immich can export its settings (Administration > Settings > Export as JSON)
+but has no import button. This app adds one:
+
+1. Edit the exported file as you like and name it `immich-config.json`.
+2. Put it in the app's config folder: `app_configs/<app ID>_afterimage`,
+   reachable through the Samba share, SSH, or the File editor app. The
+   folder has a `README.txt` once the app has started.
+3. Restart the app.
+
+Before Immich starts, the app saves the current settings
+(`settings-history/before-<time>.json` in the app's private data) and
+applies the file. The log says what happened. What happens to the file
+depends on `keep_settings_file`:
+
+- **Off (default):** the file is applied once and removed from the folder.
+  A file that is not valid JSON is renamed `immich-config.json.invalid` and
+  nothing changes.
+- **On:** the file stays and is applied at every start, whenever it differs
+  from Immich's current settings. Edit it and restart the app to change
+  settings. Changes made in Immich's settings page are replaced by the file
+  at the next start. A file that is not valid is left in place and nothing
+  changes until it is fixed.
+
+Neither has any effect while `manage_settings` is on.
 
 ## Where things are
 

@@ -89,6 +89,7 @@ for (const { target } of targets) {
 
 const requireMount = options.require_mount !== false;
 const manageSettings = options.manage_settings === true;
+const keepSettingsFile = options.keep_settings_file === true;
 const logLevel = ['verbose', 'debug', 'log', 'warn', 'error'].includes(options.log_level)
   ? options.log_level
   : 'log';
@@ -143,6 +144,7 @@ const lines = [
   `FOLDER_TARGETS=(${targets.map(({ target }) => quote(target)).join(' ')})`,
   `REQUIRE_MOUNT=${requireMount ? 'true' : 'false'}`,
   `MANAGE_SETTINGS=${manageSettings ? 'true' : 'false'}`,
+  `KEEP_SETTINGS_FILE=${keepSettingsFile ? 'true' : 'false'}`,
   `IMMICH_CONFIG_PATH=${quote(manageSettings ? configOut : '')}`,
   `LOG_LEVEL=${quote(logLevel)}`,
   `TIMEZONE=${quote(timezone)}`,

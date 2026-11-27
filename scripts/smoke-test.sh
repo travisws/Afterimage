@@ -60,6 +60,7 @@ run_container() {
     -v "${VOLUME}:/data" \
     -v "${WORK}/share/teststore:/share/teststore" \
     -v "${WORK}/options:/options" \
+    -v "${WORK}/config:/config" \
     -e AFTERIMAGE_OPTIONS=/options/options.json \
     "$IMAGE" >/dev/null
 }
@@ -78,7 +79,7 @@ echo "== build"
 "$CLI" rm "$NAME" >/dev/null 2>&1 || true
 "$CLI" volume rm "$VOLUME" >/dev/null 2>&1 || true
 rm -rf "$WORK"
-mkdir -p "${WORK}/share/teststore" "${WORK}/options"
+mkdir -p "${WORK}/share/teststore" "${WORK}/options" "${WORK}/config"
 if [ "$CLI" = "container" ]; then
   container system start --disable-kernel-install --timeout 60 >/dev/null 2>&1 || true
 fi
@@ -203,6 +204,47 @@ wait_for_immich || fail "Immich was not restarted"
 CODE="$(cexec curl -s -o /dev/null -w '%{http_code}' "${BASE}/assets/${ASSET_ID}" -H "Authorization: Bearer ${TOKEN}")"
 [ "$CODE" = "200" ] || fail "the asset is unreachable after the restart (HTTP ${CODE})"
 pass "Immich is restarted after it dies"
+
+echo "== 7. one-time settings import from the config folder"
+[ -f "${WORK}/config/README.txt" ] || fail "no README.txt in the config folder"
+sed -i.bak 's/"manage_settings": true/"manage_settings": false/' "${WORK}/options/options.json"
+printf '%s' '{"trash":{"enabled":true,"days":45},"newVersionCheck":{"enabled":false},"job":{"backgroundTask":{"concurrency":1}}}' > "${WORK}/config/immich-config.json"
+"$CLI" stop -t 100 "$NAME" >/dev/null
+"$CLI" start "$NAME" >/dev/null
+wait_for_immich || fail "Immich did not come back after the settings import"
+[ ! -e "${WORK}/config/immich-config.json" ] || fail "immich-config.json was not removed after it was applied"
+"$CLI" logs "$NAME" 2>&1 | grep -q "applied immich-config.json" || fail "no log line saying the settings were applied"
+cexec sh -c 'ls /data/settings-history/before-*.json /data/settings-history/applied-*.json' >/dev/null || fail "no settings history kept"
+DAYS="$(cexec sh -c "curl -fsS ${BASE}/system-config -H 'Authorization: Bearer ${TOKEN}' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>process.stdout.write(String(JSON.parse(s).trash.days)))'")"
+[ "$DAYS" = "45" ] || fail "imported settings are not in effect (trash days ${DAYS})"
+pass "settings imported once, file removed, previous settings kept"
+printf '%s' '{"trash": {"days": ' > "${WORK}/config/immich-config.json"
+"$CLI" stop -t 100 "$NAME" >/dev/null
+"$CLI" start "$NAME" >/dev/null
+wait_for_immich || fail "Immich did not start after an invalid settings file"
+[ -f "${WORK}/config/immich-config.json.invalid" ] || fail "an invalid file was not renamed .invalid"
+DAYS="$(cexec sh -c "curl -fsS ${BASE}/system-config -H 'Authorization: Bearer ${TOKEN}' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>process.stdout.write(String(JSON.parse(s).trash.days)))'")"
+[ "$DAYS" = "45" ] || fail "an invalid file changed the settings (trash days ${DAYS})"
+pass "an invalid file is set aside and changes nothing"
+
+echo "== 8. keep_settings_file: the file stays and is applied at every start"
+rm -f "${WORK}/config/immich-config.json.invalid"
+sed -i.bak 's/"manage_settings": false/"manage_settings": false, "keep_settings_file": true/' "${WORK}/options/options.json"
+trash_days() { cexec sh -c "curl -fsS ${BASE}/system-config -H 'Authorization: Bearer ${TOKEN}' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>process.stdout.write(String(JSON.parse(s).trash.days)))'"; }
+restart_app() { "$CLI" stop -t 100 "$NAME" >/dev/null; "$CLI" start "$NAME" >/dev/null; wait_for_immich || fail "Immich did not come back after a restart"; }
+printf '%s' '{"trash":{"enabled":true,"days":20}}' > "${WORK}/config/immich-config.json"
+restart_app
+[ -f "${WORK}/config/immich-config.json" ] || fail "the settings file was removed although keep_settings_file is on"
+[ "$(trash_days)" = "20" ] || fail "kept settings file was not applied (trash days $(trash_days))"
+printf '%s' '{"trash":{"enabled":true,"days":25}}' > "${WORK}/config/immich-config.json"
+restart_app
+[ "$(trash_days)" = "25" ] || fail "an edited settings file was not applied at the next start (trash days $(trash_days))"
+BEFORE="$("$CLI" logs "$NAME" 2>&1 | grep -c "matches Immich's current settings" || true)"
+restart_app
+AFTER="$("$CLI" logs "$NAME" 2>&1 | grep -c "matches Immich's current settings" || true)"
+[ "$AFTER" -gt "$BEFORE" ] || fail "an unchanged settings file was applied again instead of skipped"
+[ -f "${WORK}/config/immich-config.json" ] || fail "the kept settings file disappeared"
+pass "kept file is applied at every start, edits take effect, unchanged file is skipped"
 
 echo
 echo "All smoke tests passed."

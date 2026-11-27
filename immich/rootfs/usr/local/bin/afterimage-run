@@ -161,6 +161,100 @@ start_postgres() {
   log "PostgreSQL is ready"
 }
 
+# Settings import. The user drops immich-config.json (as exported from
+# Immich) into the app's public config folder. Before Immich starts, the file
+# is stored as Immich's settings and the previous settings are kept in
+# /data/settings-history. Normally the file is then moved out of the folder,
+# so it is applied once. With keep_settings_file on, it stays and is applied
+# at every start (only when it differs from what Immich has), so the file is
+# where settings are changed.
+CONFIG_DIR="${AFTERIMAGE_CONFIG_DIR:-/config}"
+SETTINGS_IMPORT="${CONFIG_DIR}/immich-config.json"
+SETTINGS_HISTORY="${DATA_DIR}/settings-history"
+
+write_config_readme() {
+  [ -d "$CONFIG_DIR" ] || return 0
+  cat > "${CONFIG_DIR}/README.txt" <<'TXT' || true
+Afterimage settings file
+
+Put a file called immich-config.json in this folder and restart the
+Afterimage app to change Immich's settings in one go. Use the file Immich
+exports from Administration > Settings (Export as JSON), edited as you like.
+
+Before Immich starts, the app saves Immich's current settings and applies
+the file. The app's log says what happened.
+
+- keep_settings_file off (default): the file is applied once and then
+  removed from this folder. A file that is not valid is renamed
+  immich-config.json.invalid and nothing changes.
+- keep_settings_file on: the file stays here and is applied at every start,
+  so edit it and restart the app to change settings. Changes made in
+  Immich's own settings page are replaced by this file at the next start.
+  A file that is not valid is left here, and nothing changes until it is
+  fixed.
+
+This file is rewritten at every start.
+TXT
+}
+
+import_settings() {
+  [ -f "$SETTINGS_IMPORT" ] || return 0
+  local stamp tmp reason exists same keep
+  keep="${KEEP_SETTINGS_FILE:-false}"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  tmp="${RUN_DIR}/settings-import.json"
+  if ! reason="$(node /usr/local/lib/afterimage/check-settings.mjs "$SETTINGS_IMPORT" "$tmp" 2>&1)"; then
+    if [ "$keep" = "true" ]; then
+      log "NOT applied: immich-config.json ${reason}. Left it in the config folder; Immich keeps its current settings until the file is fixed."
+    else
+      log "NOT applied: immich-config.json ${reason}. Renamed it to immich-config.json.invalid; Immich's settings are unchanged."
+      mv -f "$SETTINGS_IMPORT" "${SETTINGS_IMPORT}.invalid" || true
+    fi
+    rm -f "$tmp"
+    return 0
+  fi
+  exists="$(as_postgres "${PG_BIN}/psql" -h "$PG_SOCKET_DIR" -d "$DB_NAME" -tAc "SELECT to_regclass('public.system_metadata') IS NOT NULL")"
+  if [ "$exists" != "t" ]; then
+    log "Immich has not set up its database yet; immich-config.json will be applied at the next start"
+    rm -f "$tmp"
+    return 0
+  fi
+  # psql quotes :'settings' as a literal, so the file's contents cannot
+  # change the statement.
+  same="$(printf '%s\n' "SELECT coalesce((SELECT value FROM system_metadata WHERE key = 'system-config') = :'settings'::jsonb, false);" \
+    | as_postgres "${PG_BIN}/psql" -tA -h "$PG_SOCKET_DIR" -d "$DB_NAME" -v settings="$(cat "$tmp")" 2>/dev/null || true)"
+  if [ "$same" = "t" ]; then
+    log "immich-config.json matches Immich's current settings; nothing to apply"
+  else
+    mkdir -p "$SETTINGS_HISTORY"
+    chmod 0700 "$SETTINGS_HISTORY"
+    as_postgres "${PG_BIN}/psql" -h "$PG_SOCKET_DIR" -d "$DB_NAME" -tAc \
+      "SELECT coalesce((SELECT value::text FROM system_metadata WHERE key = 'system-config'), '{}')" \
+      > "${SETTINGS_HISTORY}/before-${stamp}.json"
+    if ! printf '%s\n' "INSERT INTO system_metadata (key, value) VALUES ('system-config', :'settings'::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;" \
+        | as_postgres "${PG_BIN}/psql" -q -h "$PG_SOCKET_DIR" -d "$DB_NAME" -v ON_ERROR_STOP=1 -v settings="$(cat "$tmp")" >/dev/null; then
+      log "NOT applied: the database refused immich-config.json. Left it in the config folder; Immich's settings are unchanged."
+      rm -f "$tmp"
+      return 0
+    fi
+    cp -f "$tmp" "${SETTINGS_HISTORY}/applied-${stamp}.json"
+    # Keep the 10 newest of each kind.
+    ls -1t "${SETTINGS_HISTORY}"/before-*.json 2>/dev/null | tail -n +11 | while read -r old; do rm -f "$old"; done
+    ls -1t "${SETTINGS_HISTORY}"/applied-*.json 2>/dev/null | tail -n +11 | while read -r old; do rm -f "$old"; done
+    log "applied immich-config.json to Immich's settings. The previous settings are saved in the app's data as settings-history/before-${stamp}.json"
+  fi
+  rm -f "$tmp"
+  if [ "$keep" = "true" ]; then
+    log "keep_settings_file is on: immich-config.json stays in the config folder and is applied at every start"
+  else
+    rm -f "$SETTINGS_IMPORT"
+    log "removed immich-config.json from the config folder (keep_settings_file is off)"
+  fi
+  if [ "$MANAGE_SETTINGS" = "true" ]; then
+    log "WARNING: manage_settings is on, so Immich uses the app's own settings file instead. Turn manage_settings off for these settings to take effect."
+  fi
+}
+
 start_valkey() {
   local user=nobody
   getent passwd valkey >/dev/null && user=valkey
@@ -266,6 +360,8 @@ log "Afterimage starting (Immich ${IMMICH_SOURCE_REF:-unknown}, PostgreSQL ${PG_
 [ "$REQUIRE_MOUNT" = "true" ] || log "WARNING: require_mount is off. Files will be written under ${STORAGE_MOUNT} whether or not it is a network share."
 
 start_postgres
+write_config_readme
+import_settings
 start_valkey
 
 while true; do

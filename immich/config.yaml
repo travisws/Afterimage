@@ -1,5 +1,5 @@
 name: Afterimage
-version: "3.4.2-6"
+version: "3.4.2-7"
 slug: afterimage
 description: >-
   Private photo and video backup for the household, trimmed for a Raspberry
@@ -21,6 +21,10 @@ webui: "http://[HOST]:[PORT:2283]"
 map:
   - type: share
     read_only: false
+  # Public config folder (app_configs/<app ID> in Samba, SSH or the File
+  # editor). Drop immich-config.json here to import Immich settings once.
+  - type: app_config
+    read_only: false
 # The live database folder cannot be copied safely while it runs. A dump is
 # written into /data just before each backup, and the raw folder is left out.
 backup: hot
@@ -37,6 +41,7 @@ options:
   folder_backups: backups
   require_mount: true
   manage_settings: false
+  keep_settings_file: false
   video_transcoding: disabled
   storage_template: "{{y}}/{{MM}}/{{filename}}"
   database_dumps_kept: 14
@@ -53,6 +58,7 @@ schema:
   storage_subfolder: "str?"
   require_mount: bool
   manage_settings: bool
+  keep_settings_file: bool
   video_transcoding: "list(disabled|required)"
   storage_template: str
   database_dumps_kept: "int(1,90)"
