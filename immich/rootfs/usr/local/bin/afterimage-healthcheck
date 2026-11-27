@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Docker health check for the Afterimage app. Home Assistant shows the app as
+# started once this reports, and its watchdog restarts the app if it fails
+# repeatedly. While Immich is starting up, migrating, or deliberately kept off
+# because the network share is missing, the app is healthy: the supervisor
+# script is handling it. Only a running Immich that stops answering is
+# unhealthy.
+
+state="$(cat /run/afterimage/state 2>/dev/null || echo starting)"
+case "$state" in
+  starting|waiting) exit 0 ;;
+esac
+result="$(curl -fsS -m 4 http://127.0.0.1:2283/api/server/ping 2>/dev/null)" || exit 1
+[ "$result" = '{"res":"pong"}' ]

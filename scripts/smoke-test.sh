@@ -99,6 +99,9 @@ if cexec curl -fsS "${BASE}/server/ping" >/dev/null 2>&1; then fail "Immich is r
 [ -z "$(cexec sh -c 'ls -A /share/plain')" ] || fail "something was written into the unmounted folder"
 cexec sh -c 'ls /data/postgres/*/PG_VERSION' >/dev/null || fail "PostgreSQL was not initialised"
 pass "Immich stays off and writes nothing when the share is not mounted"
+cexec /usr/local/bin/afterimage-healthcheck || fail "health check fails while waiting for the share (Home Assistant would restart the app)"
+[ "$(cexec cat /run/afterimage/state)" = "waiting" ] || fail "state is not 'waiting' while the share is missing"
+pass "health check passes while waiting for the share"
 "$CLI" stop -t 100 "$NAME" >/dev/null
 "$CLI" rm "$NAME" >/dev/null
 
@@ -107,6 +110,10 @@ write_options teststore
 run_container
 wait_for_immich || fail "Immich did not answer within 6 minutes"
 pass "Immich answers on port 2283"
+for i in $(seq 1 10); do [ "$(cexec cat /run/afterimage/state)" = "running" ] && break; sleep 3; done
+[ "$(cexec cat /run/afterimage/state)" = "running" ] || fail "state did not become 'running' after Immich came up"
+cexec /usr/local/bin/afterimage-healthcheck || fail "health check fails while Immich is running"
+pass "health check passes once Immich is up (state 'running')"
 for folder in library/library library/upload thumbs encoded-video profile backups; do
   [ -f "${WORK}/share/teststore/${folder}/.immich" ] || fail "missing ${folder}/.immich on the share"
 done

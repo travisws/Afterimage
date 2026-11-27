@@ -48,15 +48,16 @@ ENV AFTERIMAGE_PG_MAJOR=${PG_MAJOR}
 
 COPY rootfs /
 
-RUN chmod 0755 /usr/local/bin/afterimage-run /usr/local/bin/afterimage-backup-pre \
+RUN chmod 0755 /usr/local/bin/afterimage-run /usr/local/bin/afterimage-backup-pre /usr/local/bin/afterimage-healthcheck \
  && mkdir -p /afterimage/media
 
-# The Immich image's own health check marks the container unhealthy whenever
-# Immich is busy starting, migrating or waiting for the share, and Home
-# Assistant's watchdog then restarts the whole app mid-task. The supervisor
-# script restarts Immich itself, and exits (so the watchdog acts) only when
-# something is really wrong.
-HEALTHCHECK NONE
+# Replace the Immich image's health check, which fails whenever Immich is busy
+# starting, migrating or waiting for the share (Home Assistant's watchdog then
+# restarted the whole app mid-task). Do not use HEALTHCHECK NONE: Home
+# Assistant then waits for a health report that never comes and shows the app
+# as "starting" forever. See afterimage-healthcheck.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=4 \
+  CMD ["/usr/local/bin/afterimage-healthcheck"]
 
 # The base image's entrypoint is `tini -- /bin/bash -c`; keep tini, replace
 # the command with the supervisor.

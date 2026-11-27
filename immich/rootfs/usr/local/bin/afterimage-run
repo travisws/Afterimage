@@ -26,6 +26,11 @@ immich_crashes=()
 
 log() { printf '%s afterimage: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
+# Read by afterimage-healthcheck: starting, waiting (share missing) or running.
+set_state() { printf '%s' "$1" > "${RUN_DIR}/state.tmp" && mv -f "${RUN_DIR}/state.tmp" "${RUN_DIR}/state"; }
+
+immich_answers() { [ "$(curl -fsS -m 4 http://127.0.0.1:2283/api/server/ping 2>/dev/null)" = '{"res":"pong"}' ]; }
+
 as_postgres() { setpriv --reuid=postgres --regid=postgres --init-groups -- "$@"; }
 
 # True while process $1 exists and is not a zombie.
@@ -192,6 +197,7 @@ link_media_folders() {
 
 start_immich() {
   link_media_folders || return 1
+  set_state starting
   log "starting Immich"
   for i in "${!FOLDER_NAMES[@]}"; do
     log "  ${FOLDER_NAMES[$i]} -> ${FOLDER_TARGETS[$i]}"
@@ -244,6 +250,7 @@ notice_waiting() {
 trap on_signal TERM INT
 
 mkdir -p "$RUN_DIR"
+set_state starting
 node /usr/local/lib/afterimage/prepare.mjs "${RUN_DIR}/env"
 # shellcheck disable=SC1091
 . "${RUN_DIR}/env"
@@ -258,6 +265,9 @@ while true; do
   if share_ready; then
     if [ -z "$immich_pid" ] && [ "$(date +%s)" -ge "$immich_next_start" ]; then
       start_immich || notice_waiting
+    elif [ -n "$immich_pid" ] && [ "$(cat "${RUN_DIR}/state" 2>/dev/null)" = "starting" ] && immich_answers; then
+      set_state running
+      log "Immich is up"
     fi
   else
     if [ -n "$immich_pid" ]; then
@@ -266,6 +276,7 @@ while true; do
       immich_pid=""
       last_notice=0
     fi
+    set_state waiting
     notice_waiting
   fi
 
@@ -288,6 +299,7 @@ while true; do
     immich_pid=""
     # Its forked workers may still be running; stop the whole group.
     kill -s TERM -- "-${finished}" 2>/dev/null || true
+    set_state starting
     if share_ready; then
       immich_crashed "$status"
     else
