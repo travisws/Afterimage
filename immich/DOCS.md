@@ -35,6 +35,7 @@ device. Photos, videos and database dumps go to a network share.
 | `folder_profile` | `profile` | Where the `profile` folder (profile pictures) is |
 | `folder_backups` | `backups` | Where the `backups` folder (nightly database dumps) is |
 | `require_mount` | on | Start Immich only when `/share/<storage_name>` is a real mount. Leave on. Turning it off lets files be written to this device's own disk |
+| `immich_settings` | unset | Immich settings as JSON, applied at every start. Easiest to edit with Edit in YAML. See "Changing Immich's settings in the Configuration tab" |
 | `keep_settings_file` | off | Keep `immich-config.json` in the config folder and apply it at every start, instead of once. See "Changing Immich's settings from a file" |
 | `manage_settings` | off | When on, apply the trimmed settings below from a config file; Immich then shows those settings as read-only. Leave off for a restored instance, so its own settings are kept |
 | `video_transcoding` | `disabled` | `disabled` keeps videos as uploaded (a Pi has no hardware video encoder). `required` transcodes only what browsers cannot play |
@@ -55,10 +56,38 @@ concurrency lowered, database dump daily at 02:00, storage template on,
 version check off, face clustering off. With it off, turn machine learning
 off yourself in Administration > Settings, because this app does not run it.
 
-## Changing Immich's settings from a file
+## Changing Immich's settings in the Configuration tab
 
 Immich can export its settings (Administration > Settings > Export as JSON)
-but has no import button. This app adds one:
+but has no import button. The `immich_settings` option is one:
+
+1. On this app's **Configuration** tab, open the ⋮ menu and choose
+   **Edit in YAML**.
+2. Add the settings under `immich_settings: |`, indented by two spaces:
+
+   ```yaml
+   immich_settings: |
+     {
+       "machineLearning": { "enabled": false },
+       "job": { "thumbnailGeneration": { "concurrency": 1 } }
+     }
+   ```
+
+   Paste the whole exported file, or only the parts you want to change;
+   anything left out keeps Immich's default.
+3. Save and restart the app.
+
+The settings are applied at every start whenever they differ from Immich's
+current settings, so this is where you change them from then on. Changes
+made in Immich's own settings page are replaced at the next start. Before
+each change the previous settings are saved in the app's private data
+(`settings-history/`, the 10 newest). If the text is not valid JSON, nothing
+changes and the log says why. Empty the option to go back to managing
+settings in Immich.
+
+## Changing Immich's settings from a file
+
+Instead of the option, you can drop a file:
 
 1. Edit the exported file as you like and name it `immich-config.json`.
 2. Put it in the app's config folder: `app_configs/<app ID>_afterimage`,
@@ -80,7 +109,7 @@ depends on `keep_settings_file`:
   at the next start. A file that is not valid is left in place and nothing
   changes until it is fixed.
 
-Neither has any effect while `manage_settings` is on.
+The file is ignored while `immich_settings` is filled in. None of this has any effect while `manage_settings` is on.
 
 ## Where things are
 

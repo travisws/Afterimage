@@ -1,5 +1,5 @@
 name: Afterimage
-version: "3.4.2-7"
+version: "3.4.2-8"
 slug: afterimage
 description: >-
   Private photo and video backup for the household, trimmed for a Raspberry
@@ -59,6 +59,7 @@ schema:
   require_mount: bool
   manage_settings: bool
   keep_settings_file: bool
+  immich_settings: "str?"
   video_transcoding: "list(disabled|required)"
   storage_template: str
   database_dumps_kept: "int(1,90)"

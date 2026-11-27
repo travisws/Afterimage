@@ -197,34 +197,37 @@ This file is rewritten at every start.
 TXT
 }
 
-import_settings() {
-  [ -f "$SETTINGS_IMPORT" ] || return 0
-  local stamp tmp reason exists same keep
-  keep="${KEEP_SETTINGS_FILE:-false}"
+# Stores one settings source as Immich's settings. $1: path, $2: how to name
+# it in the log, $3: once (remove after applying, rename if invalid), keep
+# (apply at every start, leave in place) or option (the immich_settings
+# option; nothing to move).
+apply_settings_source() {
+  local src="$1" label="$2" mode="$3" stamp tmp reason exists same
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   tmp="${RUN_DIR}/settings-import.json"
-  if ! reason="$(node /usr/local/lib/afterimage/check-settings.mjs "$SETTINGS_IMPORT" "$tmp" 2>&1)"; then
-    if [ "$keep" = "true" ]; then
-      log "NOT applied: immich-config.json ${reason}. Left it in the config folder; Immich keeps its current settings until the file is fixed."
-    else
-      log "NOT applied: immich-config.json ${reason}. Renamed it to immich-config.json.invalid; Immich's settings are unchanged."
-      mv -f "$SETTINGS_IMPORT" "${SETTINGS_IMPORT}.invalid" || true
-    fi
+  if ! reason="$(node /usr/local/lib/afterimage/check-settings.mjs "$src" "$tmp" 2>&1)"; then
+    case "$mode" in
+      once)
+        log "NOT applied (${label}): ${reason}. Renamed it to immich-config.json.invalid; Immich's settings are unchanged."
+        mv -f "$src" "${src}.invalid" || true ;;
+      *)
+        log "NOT applied (${label}): ${reason}. Immich keeps its current settings until this is fixed." ;;
+    esac
     rm -f "$tmp"
     return 0
   fi
   exists="$(as_postgres "${PG_BIN}/psql" -h "$PG_SOCKET_DIR" -d "$DB_NAME" -tAc "SELECT to_regclass('public.system_metadata') IS NOT NULL")"
   if [ "$exists" != "t" ]; then
-    log "Immich has not set up its database yet; immich-config.json will be applied at the next start"
+    log "Immich has not set up its database yet; ${label} will be applied at the next start"
     rm -f "$tmp"
     return 0
   fi
-  # psql quotes :'settings' as a literal, so the file's contents cannot
-  # change the statement.
+  # psql quotes :'settings' as a literal, so the settings cannot change the
+  # statement.
   same="$(printf '%s\n' "SELECT coalesce((SELECT value FROM system_metadata WHERE key = 'system-config') = :'settings'::jsonb, false);" \
     | as_postgres "${PG_BIN}/psql" -tA -h "$PG_SOCKET_DIR" -d "$DB_NAME" -v settings="$(cat "$tmp")" 2>/dev/null || true)"
   if [ "$same" = "t" ]; then
-    log "immich-config.json matches Immich's current settings; nothing to apply"
+    log "${label} matches Immich's current settings; nothing to apply"
   else
     mkdir -p "$SETTINGS_HISTORY"
     chmod 0700 "$SETTINGS_HISTORY"
@@ -233,7 +236,7 @@ import_settings() {
       > "${SETTINGS_HISTORY}/before-${stamp}.json"
     if ! printf '%s\n' "INSERT INTO system_metadata (key, value) VALUES ('system-config', :'settings'::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;" \
         | as_postgres "${PG_BIN}/psql" -q -h "$PG_SOCKET_DIR" -d "$DB_NAME" -v ON_ERROR_STOP=1 -v settings="$(cat "$tmp")" >/dev/null; then
-      log "NOT applied: the database refused immich-config.json. Left it in the config folder; Immich's settings are unchanged."
+      log "NOT applied (${label}): the database refused it. Immich's settings are unchanged."
       rm -f "$tmp"
       return 0
     fi
@@ -241,17 +244,30 @@ import_settings() {
     # Keep the 10 newest of each kind.
     ls -1t "${SETTINGS_HISTORY}"/before-*.json 2>/dev/null | tail -n +11 | while read -r old; do rm -f "$old"; done
     ls -1t "${SETTINGS_HISTORY}"/applied-*.json 2>/dev/null | tail -n +11 | while read -r old; do rm -f "$old"; done
-    log "applied immich-config.json to Immich's settings. The previous settings are saved in the app's data as settings-history/before-${stamp}.json"
+    log "applied ${label} to Immich's settings. The previous settings are saved in the app's data as settings-history/before-${stamp}.json"
   fi
   rm -f "$tmp"
-  if [ "$keep" = "true" ]; then
-    log "keep_settings_file is on: immich-config.json stays in the config folder and is applied at every start"
-  else
-    rm -f "$SETTINGS_IMPORT"
-    log "removed immich-config.json from the config folder (keep_settings_file is off)"
-  fi
+  case "$mode" in
+    once) rm -f "$src"; log "removed immich-config.json from the config folder (keep_settings_file is off)" ;;
+    keep) log "keep_settings_file is on: immich-config.json stays in the config folder and is applied at every start" ;;
+  esac
   if [ "$MANAGE_SETTINGS" = "true" ]; then
     log "WARNING: manage_settings is on, so Immich uses the app's own settings file instead. Turn manage_settings off for these settings to take effect."
+  fi
+}
+
+import_settings() {
+  if [ -n "${SETTINGS_FROM_OPTION:-}" ] && [ -f "$SETTINGS_FROM_OPTION" ]; then
+    apply_settings_source "$SETTINGS_FROM_OPTION" "the immich_settings option" option
+    rm -f "$SETTINGS_FROM_OPTION"
+    [ -f "$SETTINGS_IMPORT" ] && log "immich-config.json in the config folder is ignored while the immich_settings option is filled in"
+    return 0
+  fi
+  [ -f "$SETTINGS_IMPORT" ] || return 0
+  if [ "${KEEP_SETTINGS_FILE:-false}" = "true" ]; then
+    apply_settings_source "$SETTINGS_IMPORT" "immich-config.json" keep
+  else
+    apply_settings_source "$SETTINGS_IMPORT" "immich-config.json" once
   fi
 }
 

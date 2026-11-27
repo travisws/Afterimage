@@ -90,6 +90,10 @@ for (const { target } of targets) {
 const requireMount = options.require_mount !== false;
 const manageSettings = options.manage_settings === true;
 const keepSettingsFile = options.keep_settings_file === true;
+// Immich settings pasted into the immich_settings option (JSON text). Passed
+// on as a private file and checked by the supervisor like a dropped file.
+const settingsText = typeof options.immich_settings === 'string' ? options.immich_settings.trim() : '';
+const settingsFromOption = settingsText === '' ? '' : join(dirname(envOut), 'immich-settings-option.json');
 const logLevel = ['verbose', 'debug', 'log', 'warn', 'error'].includes(options.log_level)
   ? options.log_level
   : 'log';
@@ -145,9 +149,13 @@ const lines = [
   `REQUIRE_MOUNT=${requireMount ? 'true' : 'false'}`,
   `MANAGE_SETTINGS=${manageSettings ? 'true' : 'false'}`,
   `KEEP_SETTINGS_FILE=${keepSettingsFile ? 'true' : 'false'}`,
+  `SETTINGS_FROM_OPTION=${quote(settingsFromOption)}`,
   `IMMICH_CONFIG_PATH=${quote(manageSettings ? configOut : '')}`,
   `LOG_LEVEL=${quote(logLevel)}`,
   `TIMEZONE=${quote(timezone)}`,
 ];
 mkdirSync(dirname(envOut), { recursive: true });
+if (settingsFromOption) {
+  writeFileSync(settingsFromOption, settingsText, { mode: 0o600 });
+}
 writeFileSync(envOut, `${lines.join('\n')}\n`, { mode: 0o600 });

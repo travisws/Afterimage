@@ -12,21 +12,21 @@ const fail = (message) => {
 };
 
 if (statSync(input).size > 1024 * 1024) {
-  fail('it is larger than 1 MB, which is far more than Immich settings need');
+  fail('larger than 1 MB, far more than Immich settings need');
 }
 let settings;
 try {
   settings = JSON.parse(readFileSync(input, 'utf8'));
 } catch (error) {
-  fail(`it is not valid JSON (${error.message})`);
+  fail(`not valid JSON (${error.message})`);
 }
 if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
-  fail('it must be a JSON object, like the file Immich exports from Administration > Settings');
+  fail('not a JSON object like the file Immich exports from Administration > Settings');
 }
 const known = ['backup', 'ffmpeg', 'image', 'job', 'library', 'logging', 'machineLearning', 'map', 'metadata',
   'newVersionCheck', 'nightlyTasks', 'notifications', 'oauth', 'passkey', 'passwordLogin', 'reverseGeocoding',
   'server', 'storageTemplate', 'templates', 'theme', 'trash', 'user', 'integrityChecks'];
 if (!Object.keys(settings).some((key) => known.includes(key))) {
-  fail('none of its sections look like Immich settings (expected keys such as "job", "image", "machineLearning")');
+  fail('no Immich settings sections found (expected keys such as "job", "image", "machineLearning")');
 }
 writeFileSync(output, JSON.stringify(settings), { mode: 0o600 });

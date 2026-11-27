@@ -24,6 +24,10 @@ BASE="http://127.0.0.1:2283/api"
 pass() { printf 'PASS  %s\n' "$*"; }
 fail() { printf 'FAIL  %s\n' "$*" >&2; echo "--- last container log lines ---" >&2; "$CLI" logs "$NAME" 2>&1 | tail -40 >&2 || true; exit 1; }
 cexec() { "$CLI" exec "$NAME" "$@"; }
+# Search the container log. The log is saved first: piping it straight into
+# grep -q fails under pipefail when grep stops reading early.
+log_has() { "$CLI" logs "$NAME" > "${WORK}/container.log" 2>&1 || true; grep -q -- "$1" "${WORK}/container.log"; }
+log_count() { "$CLI" logs "$NAME" > "${WORK}/container.log" 2>&1 || true; grep -c -- "$1" "${WORK}/container.log" || true; }
 
 cleanup() {
   [ "${KEEP:-0}" = "1" ] && return 0
@@ -96,7 +100,7 @@ run_container
 cexec mkdir -p /share/plain
 sleep 40
 if cexec curl -fsS "${BASE}/server/ping" >/dev/null 2>&1; then fail "Immich is running although /share/plain is not a mount"; fi
-"$CLI" logs "$NAME" 2>&1 | grep -q "is not a mounted network share" || fail "no 'waiting for share' message in the log"
+log_has "is not a mounted network share" || fail "no 'waiting for share' message in the log"
 [ -z "$(cexec sh -c 'ls -A /share/plain')" ] || fail "something was written into the unmounted folder"
 cexec sh -c 'ls /data/postgres/*/PG_VERSION' >/dev/null || fail "PostgreSQL was not initialised"
 pass "Immich stays off and writes nothing when the share is not mounted"
@@ -183,13 +187,13 @@ pass "pre-backup database dump written"
 
 echo "== 5. stop and start again"
 "$CLI" stop -t 100 "$NAME" >/dev/null
-"$CLI" logs "$NAME" 2>&1 | grep -q "afterimage: stopped" || fail "the supervisor did not shut down in order"
-if "$CLI" logs "$NAME" 2>&1 | grep -q "did not stop in"; then fail "a service had to be killed on shutdown"; fi
+log_has "afterimage: stopped" || fail "the supervisor did not shut down in order"
+if log_has "did not stop in"; then fail "a service had to be killed on shutdown"; fi
 "$CLI" start "$NAME" >/dev/null
 wait_for_immich || fail "Immich did not come back after a restart"
 CODE="$(cexec curl -s -o /dev/null -w '%{http_code}' "${BASE}/assets/${ASSET_ID}" -H "Authorization: Bearer ${TOKEN}")"
 [ "$CODE" = "200" ] || fail "the asset is gone after a restart (HTTP ${CODE})"
-if "$CLI" logs "$NAME" 2>&1 | grep -q "was not properly shut down"; then fail "PostgreSQL had to recover from an unclean shutdown"; fi
+if log_has "was not properly shut down"; then fail "PostgreSQL had to recover from an unclean shutdown"; fi
 pass "data survives a clean stop and start"
 
 echo "== 6. Immich dies and comes back"
@@ -199,7 +203,7 @@ MAIN_PID="$(cexec pgrep -o -f '^immich$' || true)"
 [ -n "$MAIN_PID" ] || fail "could not find the Immich process"
 cexec kill -KILL "$MAIN_PID"
 sleep 5
-"$CLI" logs "$NAME" 2>&1 | grep -q "Immich stopped unexpectedly" || fail "the supervisor did not notice Immich dying"
+log_has "Immich stopped unexpectedly" || fail "the supervisor did not notice Immich dying"
 wait_for_immich || fail "Immich was not restarted"
 CODE="$(cexec curl -s -o /dev/null -w '%{http_code}' "${BASE}/assets/${ASSET_ID}" -H "Authorization: Bearer ${TOKEN}")"
 [ "$CODE" = "200" ] || fail "the asset is unreachable after the restart (HTTP ${CODE})"
@@ -213,7 +217,7 @@ printf '%s' '{"trash":{"enabled":true,"days":45},"newVersionCheck":{"enabled":fa
 "$CLI" start "$NAME" >/dev/null
 wait_for_immich || fail "Immich did not come back after the settings import"
 [ ! -e "${WORK}/config/immich-config.json" ] || fail "immich-config.json was not removed after it was applied"
-"$CLI" logs "$NAME" 2>&1 | grep -q "applied immich-config.json" || fail "no log line saying the settings were applied"
+log_has "applied immich-config.json" || fail "no log line saying the settings were applied"
 cexec sh -c 'ls /data/settings-history/before-*.json /data/settings-history/applied-*.json' >/dev/null || fail "no settings history kept"
 DAYS="$(cexec sh -c "curl -fsS ${BASE}/system-config -H 'Authorization: Bearer ${TOKEN}' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>process.stdout.write(String(JSON.parse(s).trash.days)))'")"
 [ "$DAYS" = "45" ] || fail "imported settings are not in effect (trash days ${DAYS})"
@@ -239,12 +243,37 @@ restart_app
 printf '%s' '{"trash":{"enabled":true,"days":25}}' > "${WORK}/config/immich-config.json"
 restart_app
 [ "$(trash_days)" = "25" ] || fail "an edited settings file was not applied at the next start (trash days $(trash_days))"
-BEFORE="$("$CLI" logs "$NAME" 2>&1 | grep -c "matches Immich's current settings" || true)"
+BEFORE="$(log_count "matches Immich's current settings")"
 restart_app
-AFTER="$("$CLI" logs "$NAME" 2>&1 | grep -c "matches Immich's current settings" || true)"
+AFTER="$(log_count "matches Immich's current settings")"
 [ "$AFTER" -gt "$BEFORE" ] || fail "an unchanged settings file was applied again instead of skipped"
 [ -f "${WORK}/config/immich-config.json" ] || fail "the kept settings file disappeared"
 pass "kept file is applied at every start, edits take effect, unchanged file is skipped"
+
+echo "== 9. immich_settings option: pasted JSON is applied and wins over the file"
+python3 -I - "${WORK}/options/options.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+o = json.load(open(p))
+o["immich_settings"] = '{\n  "trash": {"enabled": true, "days": 33}\n}\n'
+json.dump(o, open(p, "w"), indent=2)
+PY
+restart_app
+[ "$(trash_days)" = "33" ] || fail "settings from the immich_settings option were not applied (trash days $(trash_days))"
+log_has "applied the immich_settings option" || fail "no log line for the option being applied"
+log_has "is ignored while the immich_settings option is filled in" || fail "no log line saying the file is ignored"
+cexec sh -c 'test ! -e /run/afterimage/immich-settings-option.json' || fail "the option's settings were left in a file"
+python3 -I - "${WORK}/options/options.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+o = json.load(open(p))
+o["immich_settings"] = '{ "trash": { "days": '
+json.dump(o, open(p, "w"), indent=2)
+PY
+restart_app
+[ "$(trash_days)" = "33" ] || fail "invalid JSON in the option changed the settings (trash days $(trash_days))"
+log_has "NOT applied (the immich_settings option): not valid JSON" || fail "no clear message for invalid JSON in the option"
+pass "pasted settings are applied at start, override the file, and invalid JSON changes nothing"
 
 echo
 echo "All smoke tests passed."
